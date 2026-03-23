@@ -1,0 +1,8 @@
+ccxt
+websockets
+pymongo[srv]
+python-dotenv
+pandas
+requests
+numpy
+dnspython
