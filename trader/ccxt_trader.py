@@ -254,13 +254,14 @@ class HyperliquidTrader:
         """Retourne (bool, position_info) pour la paire courante."""
         positions = self.fetch_positions()
         for pos in positions:
-            if pos.get("symbol") == self.pair and float(pos.get("contracts", 0)) > 0:
+            contracts = float(pos.get("contracts") or 0)
+            if pos.get("symbol") == self.pair and contracts > 0:
                 return True, {
                     "side": pos.get("side"),
-                    "entry_price": float(pos.get("entryPrice", 0)),
-                    "contracts": float(pos.get("contracts", 0)),
-                    "mark_price": float(pos.get("markPrice", 0)),
-                    "unrealized_pnl": float(pos.get("unrealizedPnl", 0)),
+                    "entry_price": float(pos.get("entryPrice") or 0),
+                    "contracts": contracts,
+                    "mark_price": float(pos.get("markPrice") or 0),
+                    "unrealized_pnl": float(pos.get("unrealizedPnl") or 0),
                 }
         return False, None
 
