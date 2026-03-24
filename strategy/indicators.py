@@ -88,6 +88,31 @@ def volume_ratio(volume, period=20):
     return volume / avg_vol.replace(0, np.nan)
 
 
+def adx(df, period=14):
+    """Average Directional Index — mesure la force de la tendance.
+    > 20 = tendance, < 20 = range/chop.
+    """
+    high = df["high"]
+    low = df["low"]
+    close = df["close"]
+
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
+
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+
+    atr_val = atr(df, period)
+
+    plus_di = 100 * (plus_dm.ewm(span=period, adjust=False).mean() / atr_val.replace(0, np.nan))
+    minus_di = 100 * (minus_dm.ewm(span=period, adjust=False).mean() / atr_val.replace(0, np.nan))
+
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    adx_val = dx.ewm(span=period, adjust=False).mean()
+
+    return adx_val, plus_di, minus_di
+
+
 def ema_slope(ema_series, lookback=3):
     """Pente de l'EMA sur N periodes — detecte l'acceleration de tendance."""
     return (ema_series - ema_series.shift(lookback)) / ema_series.shift(lookback) * 100

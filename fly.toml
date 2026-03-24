@@ -1,0 +1,20 @@
+# fly.toml app configuration file generated for hyperliquid-bot-v8 on 2026-03-23T21:54:22+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'hyperliquid-bot-v8'
+primary_region = 'cdg'
+
+[build]
+
+[env]
+  DEBUG = 'true'
+
+# Pas de http_service — c'est un worker, pas un web service
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'
+  cpus = 1
+  memory_mb = 256

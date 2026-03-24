@@ -8,7 +8,7 @@ from config import (
 )
 from strategy.indicators import (
     ema, rsi, macd, bollinger_bands, vwap, atr,
-    bb_width, bb_percent_b, volume_ratio, ema_slope
+    bb_width, bb_percent_b, volume_ratio, ema_slope, adx
 )
 from utils.logger import Logger
 
@@ -32,19 +32,25 @@ class StrategyEngine:
         return df
 
     def compute_signals(self):
-        """Scoring pondere multi-timeframe ameliore.
+        """Scoring pondere multi-timeframe v8.1 — anti-chop ameliore.
 
-        Poids :
+        Filtres GATE (bloquent le signal si non remplis) :
+          1. ADX > 20  → tendance confirmee (sinon = range/chop)
+          2. BB width > 0.003 → volatilite suffisante (sinon = squeeze)
+
+        Poids scoring :
           EMA trend 1m         x2    (direction)
           MACD momentum        x2    (force)
           MACD histogram dir.  x1    (acceleration)
-          RSI zones            x1    (extremes — seuils scalping)
+          RSI zones            x1    (extremes)
           Bollinger %B         x1    (position relative)
           VWAP                 x1    (biais institutionnel)
-          Volume spike         x1    (confirmation par volume)
+          Volume spike         x1    (confirmation)
+          ADX force            x1    (bonus si tendance forte)
           Confirmation 15m     x2    (multi-timeframe)
         ------------------------------------------
-        Total possible : +/-11, normalise en 5 niveaux [-2, -1, 0, 1, 2]
+        Total possible : +/-12, normalise en 5 niveaux [-2, -1, 0, 1, 2]
+        Seuil de trade : level ±2 (raw >= 7 ou <= -7)
         """
         df_1m = self.get_last_n_candles(100, "1m")
         df_15m = self.get_last_n_candles(50, "15m")
@@ -64,12 +70,32 @@ class StrategyEngine:
         df_1m["BB_width"] = bb_width(df_1m["BB_upper"], df_1m["BB_lower"], df_1m["BB_mid"])
         df_1m["vol_ratio"] = volume_ratio(df_1m["volume"])
         df_1m["EMA9_slope"] = ema_slope(df_1m["EMA9"], 3)
+        df_1m["ADX"], df_1m["PLUS_DI"], df_1m["MINUS_DI"] = adx(df_1m)
 
         row = df_1m.iloc[-1]
         prev = df_1m.iloc[-2]
 
         score = 0
         debug = {}
+
+        # === FILTRES GATE (anti-chop) ===
+        adx_val = row["ADX"] if pd.notna(row["ADX"]) else 0.0
+        bb_w = row["BB_width"] if pd.notna(row["BB_width"]) else 0.0
+        is_squeeze = bb_w < 0.003
+        is_trending = adx_val >= 20
+
+        debug["adx"] = f"{adx_val:.1f} ({'TREND' if is_trending else 'RANGE/CHOP'})"
+        debug["bb_width_filter"] = f"{bb_w:.4f} ({'OK' if not is_squeeze else 'SQUEEZE — BLOCKED'})"
+
+        if not is_trending:
+            debug["gate"] = f"BLOCKED — ADX={adx_val:.1f} < 20 (range/chop)"
+            return self._gate_blocked(debug, row)
+
+        if is_squeeze:
+            debug["gate"] = f"BLOCKED — BB width={bb_w:.4f} < 0.003 (squeeze)"
+            return self._gate_blocked(debug, row)
+
+        debug["gate"] = "PASSED"
 
         # --- 1. EMA Trend (poids x2) ---
         if row["EMA9"] > row["EMA21"]:
@@ -95,7 +121,7 @@ class StrategyEngine:
             score -= 1
             debug["macd_hist"] = f"SHRINKING {row['MACD_hist']:.4f} (-1)"
 
-        # --- 4. RSI (poids x1) — seuils adaptes au scalping 1m ---
+        # --- 4. RSI (poids x1) ---
         rsi_val = row["RSI"]
         if pd.isna(rsi_val):
             rsi_val = 50.0
@@ -108,21 +134,17 @@ class StrategyEngine:
         else:
             debug["rsi"] = f"NEUTRAL {rsi_val:.1f} (0)"
 
-        # --- 5. Bollinger %B (poids x1) — plus fin que simple upper/lower ---
+        # --- 5. Bollinger %B (poids x1) ---
         bb_pctb = row["BB_pctB"] if pd.notna(row["BB_pctB"]) else 0.5
-        bb_w = row["BB_width"] if pd.notna(row["BB_width"]) else 0.0
-        is_squeeze = bb_w < 0.002  # Bandes tres serrees = squeeze
 
         if bb_pctb > 0.85 and rsi_val > 55:
             score -= 1
-            debug["bb"] = f"OVEREXTENDED %B={bb_pctb:.2f} w={bb_w:.4f} (-1)"
+            debug["bb"] = f"OVEREXTENDED %B={bb_pctb:.2f} (-1)"
         elif bb_pctb < 0.15 and rsi_val < 45:
             score += 1
-            debug["bb"] = f"OVERSOLD ZONE %B={bb_pctb:.2f} w={bb_w:.4f} (+1)"
-        elif is_squeeze:
-            debug["bb"] = f"SQUEEZE %B={bb_pctb:.2f} w={bb_w:.4f} (0) ⚡"
+            debug["bb"] = f"OVERSOLD ZONE %B={bb_pctb:.2f} (+1)"
         else:
-            debug["bb"] = f"INSIDE %B={bb_pctb:.2f} w={bb_w:.4f} (0)"
+            debug["bb"] = f"INSIDE %B={bb_pctb:.2f} (0)"
 
         # --- 6. VWAP (poids x1) ---
         if pd.notna(row["VWAP"]) and row["VWAP"] > 0:
@@ -135,17 +157,30 @@ class StrategyEngine:
         else:
             debug["vwap"] = "N/A (0)"
 
-        # --- 7. Volume spike (poids x1) — NEW ---
+        # --- 7. Volume spike (poids x1) ---
         vol_r = row["vol_ratio"] if pd.notna(row["vol_ratio"]) else 1.0
         if vol_r > 1.8:
-            # Volume eleve confirme la direction du mouvement
             candle_dir = 1 if row["close"] > row["open"] else -1
             score += candle_dir
-            debug["volume"] = f"SPIKE x{vol_r:.1f} dir={'+' if candle_dir > 0 else '-'} ({'+' if candle_dir > 0 else ''}{candle_dir})"
+            debug["volume"] = f"SPIKE x{vol_r:.1f} ({'+' if candle_dir > 0 else ''}{candle_dir})"
         else:
             debug["volume"] = f"NORMAL x{vol_r:.1f} (0)"
 
-        # --- 8. Confirmation 15m (poids x2) ---
+        # --- 8. ADX strength bonus (poids x1) ---
+        if adx_val >= 30:
+            # Tendance forte : bonus dans la direction des DI
+            plus_di = row["PLUS_DI"] if pd.notna(row["PLUS_DI"]) else 0
+            minus_di = row["MINUS_DI"] if pd.notna(row["MINUS_DI"]) else 0
+            if plus_di > minus_di:
+                score += 1
+                debug["adx_bonus"] = f"STRONG TREND +DI>-DI ({plus_di:.1f}>{minus_di:.1f}) (+1)"
+            else:
+                score -= 1
+                debug["adx_bonus"] = f"STRONG TREND -DI>+DI ({minus_di:.1f}>{plus_di:.1f}) (-1)"
+        else:
+            debug["adx_bonus"] = f"MODERATE TREND ADX={adx_val:.1f} (0)"
+
+        # --- 9. Confirmation 15m (poids x2) ---
         if not df_15m.empty and len(df_15m) >= 21:
             df_15m["EMA9"] = ema(df_15m["close"], 9)
             df_15m["EMA21"] = ema(df_15m["close"], 21)
@@ -158,24 +193,24 @@ class StrategyEngine:
 
             if confirms_bull:
                 score += 2
-                debug["confirm_15m"] = f"BULLISH (EMA9>21 + RSI={rsi_15m:.1f}) (+2)"
+                debug["confirm_15m"] = f"BULLISH (RSI={rsi_15m:.1f}) (+2)"
             elif confirms_bear:
                 score -= 2
-                debug["confirm_15m"] = f"BEARISH (EMA9<21 + RSI={rsi_15m:.1f}) (-2)"
+                debug["confirm_15m"] = f"BEARISH (RSI={rsi_15m:.1f}) (-2)"
             else:
                 debug["confirm_15m"] = f"MIXED (RSI={rsi_15m:.1f}) (0)"
         else:
             debug["confirm_15m"] = f"NO DATA ({len(df_15m)} candles) (0)"
 
         # === Normalisation [-2, +2] ===
-        # Score possible : -11 a +11
-        if score >= 5:
+        # Score possible : -12 a +12 — seuils plus stricts
+        if score >= 7:
             level = 2
-        elif score >= 2:
+        elif score >= 3:
             level = 1
-        elif score <= -5:
+        elif score <= -7:
             level = -2
-        elif score <= -2:
+        elif score <= -3:
             level = -1
         else:
             level = 0
@@ -252,6 +287,26 @@ class StrategyEngine:
         })
 
         return result
+
+    def _gate_blocked(self, debug, row):
+        """Retourne un signal neutre quand un filtre gate bloque."""
+        rsi_val = row["RSI"] if pd.notna(row["RSI"]) else 50.0
+        atr_val = row["ATR"] if pd.notna(row["ATR"]) else None
+        return {
+            "score": 0,
+            "raw_score": 0,
+            "label": LEVELS[0]["label"],
+            "color": LEVELS[0]["color"],
+            "dynamic_tp": None,
+            "dynamic_sl": None,
+            "is_squeeze": debug.get("bb_width_filter", "").endswith("BLOCKED"),
+            "debug": {
+                **debug,
+                "close": float(row["close"]),
+                "RSI": float(rsi_val),
+                "ATR": float(atr_val) if atr_val else None,
+            }
+        }
 
     def _neutral(self, reason=""):
         if DEBUG:

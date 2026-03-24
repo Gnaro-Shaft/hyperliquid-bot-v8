@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from config import (
     PAIRS, DEBUG, TP_PCT, SL_PCT, TRAIL_PCT,
     TRAILING_TRIGGER_PCT, TRAILING_STEP_PCT,
-    KILL_SWITCH_FILE,
+    KILL_SWITCH_FILE, COOLDOWN_BETWEEN_TRADES_SEC,
 )
 from strategy.strategy_engine import StrategyEngine
 from trader.ccxt_trader import HyperliquidTrader
@@ -26,6 +26,7 @@ class TradingBot:
         self._shutdown = False
         self.position = self._empty_position()
         self._last_daily_reset = None
+        self._last_trade_time = 0  # Cooldown entre trades
 
     def start(self):
         """Point d'entree principal."""
@@ -143,6 +144,7 @@ class TradingBot:
                         result = self.trader.close_position(reason="signal_reverse")
                         if result:
                             self.risk.register_trade_result(result["pnl"])
+                        self._last_trade_time = time.time()
                         self.position = self._empty_position()
                     else:
                         self._manage_trailing(last_price)
@@ -182,6 +184,14 @@ class TradingBot:
         if sig["score"] not in (2, -2):
             return
 
+        # Cooldown entre trades
+        elapsed = time.time() - self._last_trade_time
+        if elapsed < COOLDOWN_BETWEEN_TRADES_SEC:
+            remaining = int(COOLDOWN_BETWEEN_TRADES_SEC - elapsed)
+            if DEBUG:
+                print(f"  [COOLDOWN] {remaining}s restantes avant prochain trade")
+            return
+
         # Notifier le signal fort
         self.notifier.signal_alert(
             self.engine.coin, sig["score"], sig["raw_score"],
@@ -204,6 +214,7 @@ class TradingBot:
 
         result = self.trader.place_order_with_tp_sl(side, price, tp_pct=tp, sl_pct=sl)
         if result:
+            self._last_trade_time = time.time()
             self.position = {
                 "active": True,
                 "entry": price,
