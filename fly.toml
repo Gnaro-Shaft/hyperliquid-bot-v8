@@ -13,6 +13,10 @@ primary_region = 'cdg'
 
 # Pas de http_service — c'est un worker, pas un web service
 
+[restart]
+  policy = 'always'
+  max_retries = 10
+
 [[vm]]
   size = 'shared-cpu-1x'
   memory = '256mb'
