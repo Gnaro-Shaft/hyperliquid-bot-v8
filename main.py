@@ -131,9 +131,40 @@ class TradingBot:
 
                 # Position fermee par l'exchange (TP/SL hit)
                 if not has_pos and self.position["active"]:
-                    print("[BOT] Position fermee par l'exchange (TP/SL hit)")
+                    entry = self.position.get("entry", 0)
+                    side = self.position.get("side", "buy")
+                    size = self.position.get("size", 0)
+
+                    # Récupérer le vrai prix de sortie depuis les fills
+                    last_fill = self.trader.get_last_closed_trade()
+                    if last_fill and last_fill["price"] > 0:
+                        exit_price = last_fill["price"]
+                    else:
+                        # Fallback: prix actuel
+                        exit_price = last_price
+
+                    # Calcul PnL réel
+                    if side == "buy":
+                        pnl = (exit_price - entry) * size
+                    else:
+                        pnl = (entry - exit_price) * size
+
+                    reason = "tp_sl_exchange"
+                    print(f"[BOT] Position fermee par l'exchange | Entry: {entry:.2f} → Exit: {exit_price:.2f} | PnL: {pnl:+.4f}")
+
                     self.trader.cancel_open_orders()
-                    # On ne connait pas le PnL exact, le notifier a deja ete appele par le TP/SL
+                    self.notifier.trade_closed(self.trader.pair, side, entry, exit_price, pnl, reason)
+                    self.risk.register_trade_result(pnl)
+                    self.trader.logger.log_trade({
+                        "pair": self.trader.pair,
+                        "side": side,
+                        "action": "close",
+                        "entry_price": entry,
+                        "exit_price": exit_price,
+                        "size": size,
+                        "pnl": pnl,
+                        "reason": reason,
+                    })
                     self.position = self._empty_position()
 
                 # 3. Gestion de position existante
@@ -219,6 +250,7 @@ class TradingBot:
                 "active": True,
                 "entry": price,
                 "side": side,
+                "size": result.get("size", 0),
                 "trailing": None,
                 "trailing_active": False,
                 "open_time": time.time(),
@@ -287,6 +319,7 @@ class TradingBot:
             "active": False,
             "entry": None,
             "side": None,
+            "size": 0,
             "trailing": None,
             "trailing_active": False,
             "open_time": None,

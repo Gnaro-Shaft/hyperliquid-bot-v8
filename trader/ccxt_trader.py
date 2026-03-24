@@ -276,6 +276,28 @@ class HyperliquidTrader:
                 }
         return False, None
 
+    def get_last_closed_trade(self, since_ms=None):
+        """Récupère le dernier trade fermé depuis l'exchange (fills)."""
+        try:
+            if since_ms is None:
+                since_ms = int((time.time() - 3600) * 1000)  # derniere heure
+            trades = self.exchange.fetch_my_trades(self.pair, since=since_ms, limit=50)
+            if not trades:
+                return None
+            # Le dernier fill est la fermeture
+            last = trades[-1]
+            return {
+                "price": float(last.get("price", 0)),
+                "amount": float(last.get("amount", 0)),
+                "side": last.get("side"),
+                "cost": float(last.get("cost", 0)),
+                "fee": float(last.get("fee", {}).get("cost", 0)) if last.get("fee") else 0,
+                "timestamp": last.get("timestamp"),
+            }
+        except Exception as e:
+            print(f"[TRADER][ERREUR] get_last_closed_trade: {e}")
+            return None
+
 
 if __name__ == "__main__":
     trader = HyperliquidTrader()
