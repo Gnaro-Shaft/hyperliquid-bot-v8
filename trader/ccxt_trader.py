@@ -176,14 +176,20 @@ class HyperliquidTrader:
         # 1. Annuler tous les ordres ouverts sur cette paire (TP/SL)
         self.cancel_open_orders()
 
-        # 2. Fermer la position
+        # 2. Fetcher le prix actuel AVANT de fermer (plus fiable que markPrice)
+        try:
+            ticker = self.exchange.fetch_ticker(self.pair)
+            current_price = float(ticker.get("last", 0))
+        except Exception:
+            current_price = 0
+
+        # 3. Fermer la position
         positions = self.fetch_positions()
         for pos in positions:
             if pos.get("symbol") == self.pair and float(pos.get("contracts", 0)) > 0:
                 amt = abs(float(pos["contracts"]))
                 side = "sell" if pos.get("side") == "long" else "buy"
                 entry_price = float(pos.get("entryPrice", 0))
-                mark_price = float(pos.get("markPrice") or pos.get("entryPrice", 0))
 
                 try:
                     order = self.exchange.create_order(
@@ -191,26 +197,31 @@ class HyperliquidTrader:
                         type="market",
                         side=side,
                         amount=amt,
-                        price=mark_price,
+                        price=current_price,
                         params={"maxSlippagePcnt": 0.01}
                     )
 
-                    # Calcul PnL
+                    # Récupérer le vrai prix d'exécution depuis l'ordre
+                    fill_price = float(order.get("average", 0) or order.get("price", 0) or current_price)
+                    if fill_price == 0:
+                        fill_price = current_price
+
+                    # Calcul PnL avec le vrai prix d'exécution
                     if pos.get("side") == "long":
-                        pnl = (mark_price - entry_price) * amt
+                        pnl = (fill_price - entry_price) * amt
                     else:
-                        pnl = (entry_price - mark_price) * amt
+                        pnl = (entry_price - fill_price) * amt
 
-                    print(f"[TRADER] Position fermee {side} {amt} @ {mark_price} | PnL: {pnl:+.2f} | Raison: {reason}")
+                    print(f"[TRADER] Position fermee {side} {amt} @ {fill_price:.2f} (entry: {entry_price:.2f}) | PnL: {pnl:+.4f} | Raison: {reason}")
 
-                    self.notifier.trade_closed(self.pair, pos.get("side", side), entry_price, mark_price, pnl, reason)
+                    self.notifier.trade_closed(self.pair, pos.get("side", side), entry_price, fill_price, pnl, reason)
 
                     self.logger.log_trade({
                         "pair": self.pair,
                         "side": pos.get("side", side),
                         "action": "close",
                         "entry_price": entry_price,
-                        "exit_price": mark_price,
+                        "exit_price": fill_price,
                         "size": amt,
                         "pnl": pnl,
                         "reason": reason,

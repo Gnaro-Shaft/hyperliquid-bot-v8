@@ -13,7 +13,7 @@ primary_region = 'cdg'
 
 # Pas de http_service — c'est un worker, pas un web service
 
-[restart]
+[[restart]]
   policy = 'always'
   max_retries = 10
 
