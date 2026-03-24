@@ -268,6 +268,7 @@ class StrategyEngine:
                 "BB_width": float(bb_w),
                 "VWAP": float(row["VWAP"]) if pd.notna(row["VWAP"]) else None,
                 "ATR": float(atr_val) if atr_val else None,
+                "atr_pct": float(atr_pct) if atr_val and row["close"] > 0 else 0.001,
                 "vol_ratio": float(vol_r),
                 "EMA9_slope": float(ema9_slp),
             }
