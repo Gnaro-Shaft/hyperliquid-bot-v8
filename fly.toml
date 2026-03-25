@@ -1,8 +1,4 @@
-# fly.toml app configuration file generated for hyperliquid-bot-v8 on 2026-03-23T21:54:22+01:00
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
+# fly.toml app configuration file generated for hyperliquid-bot-v8
 app = 'hyperliquid-bot-v8'
 primary_region = 'cdg'
 
@@ -13,12 +9,17 @@ primary_region = 'cdg'
 
 # Pas de http_service — c'est un worker, pas un web service
 
+[processes]
+  app = "python main.py"
+
 [[restart]]
   policy = 'always'
-  max_retries = 10
+  max_retries = 0
 
 [[vm]]
   size = 'shared-cpu-1x'
   memory = '256mb'
   cpus = 1
   memory_mb = 256
+  auto_stop = false
+  auto_start = true
