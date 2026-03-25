@@ -35,8 +35,9 @@ class TradingBot:
 
     def start(self):
         """Point d'entree principal."""
-        signal.signal(signal.SIGINT, self._handle_shutdown)
-        signal.signal(signal.SIGTERM, self._handle_shutdown)
+        # Ignorer les signaux pendant le demarrage (Fly envoie SIGINT/SIGTERM pendant le deploy)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
         # Lance le collector WS en thread separee
         collector_thread = threading.Thread(target=self._run_collector, daemon=True)
@@ -75,6 +76,10 @@ class TradingBot:
 
         self.notifier.bot_started(pair, balance)
         print(f"\n=== Trading Bot v8 LIVE sur {pair} | Solde: {balance:.2f} USDC ===\n")
+
+        # Maintenant que le bot est pret, activer les handlers de shutdown
+        signal.signal(signal.SIGINT, self._handle_shutdown)
+        signal.signal(signal.SIGTERM, self._handle_shutdown)
 
         self._trading_loop()
 
