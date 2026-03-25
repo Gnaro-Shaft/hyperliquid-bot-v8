@@ -8,6 +8,7 @@ from config import (
     PAIRS, DEBUG, TP_PCT, SL_PCT, TRAIL_PCT,
     TRAILING_TRIGGER_PCT, TRAILING_STEP_PCT,
     KILL_SWITCH_FILE, COOLDOWN_BETWEEN_TRADES_SEC,
+    SIGNAL_CONFIRM_COUNT,
 )
 from strategy.strategy_engine import StrategyEngine
 from trader.ccxt_trader import HyperliquidTrader
@@ -27,6 +28,8 @@ class TradingBot:
         self.position = self._empty_position()
         self._last_daily_reset = None
         self._last_trade_time = 0  # Cooldown entre trades
+        self._signal_streak = 0    # Compteur de signaux forts consecutifs
+        self._last_signal_dir = 0  # Direction du dernier signal fort
 
     def start(self):
         """Point d'entree principal."""
@@ -77,6 +80,10 @@ class TradingBot:
                 "active": True,
                 "entry": pos_info["entry_price"],
                 "side": "buy" if pos_info["side"] == "long" else "sell",
+                "size": abs(pos_info.get("size", 0)),
+                "trail_distance": TRAIL_PCT,
+                "trail_trigger": TRAILING_TRIGGER_PCT,
+                "trail_step": TRAILING_STEP_PCT,
                 "trailing": None,
                 "trailing_active": False,
                 "open_time": time.time(),
@@ -211,8 +218,23 @@ class TradingBot:
         return False
 
     def _try_open_position(self, sig, price):
-        """Tente d'ouvrir une position si le signal est fort."""
+        """Tente d'ouvrir une position si le signal est fort ET confirme."""
         if sig["score"] not in (2, -2):
+            # Reset streak si signal faible
+            self._signal_streak = 0
+            self._last_signal_dir = 0
+            return
+
+        # Compteur de signaux consecutifs dans la meme direction
+        if sig["score"] == self._last_signal_dir:
+            self._signal_streak += 1
+        else:
+            self._signal_streak = 1
+            self._last_signal_dir = sig["score"]
+
+        if self._signal_streak < SIGNAL_CONFIRM_COUNT:
+            if DEBUG:
+                print(f"  [CONFIRM] Signal fort {sig['score']} ({self._signal_streak}/{SIGNAL_CONFIRM_COUNT}) — en attente de confirmation")
             return
 
         # Cooldown entre trades
@@ -223,7 +245,10 @@ class TradingBot:
                 print(f"  [COOLDOWN] {remaining}s restantes avant prochain trade")
             return
 
-        # Notifier le signal fort
+        # Signal confirme ! Reset streak
+        self._signal_streak = 0
+
+        # Notifier le signal fort confirme
         self.notifier.signal_alert(
             self.engine.coin, sig["score"], sig["raw_score"],
             sig["label"], sig["color"], price, sig["debug"]
@@ -246,11 +271,11 @@ class TradingBot:
         result = self.trader.place_order_with_tp_sl(side, price, tp_pct=tp, sl_pct=sl)
         if result:
             self._last_trade_time = time.time()
-            # Trailing dynamique basé sur ATR
+            # Trailing dynamique basé sur ATR — seuils LARGES pour laisser courir
             atr_pct = sig["debug"].get("atr_pct", 0.001)  # ATR en % du prix
-            trail_distance = max(atr_pct * 1.0, 0.003)     # 1x ATR, minimum 0.3%
-            trail_trigger = max(atr_pct * 0.8, 0.003)      # Activation à 0.8x ATR
-            trail_step = max(atr_pct * 0.3, 0.001)         # Rehausse à 0.3x ATR
+            trail_distance = max(atr_pct * 1.5, 0.005)     # 1.5x ATR, minimum 0.5%
+            trail_trigger = max(atr_pct * 2.0, 0.008)      # Activation à 2x ATR (laisser le trade respirer)
+            trail_step = max(atr_pct * 0.5, 0.002)         # Rehausse à 0.5x ATR
 
             self.position = {
                 "active": True,

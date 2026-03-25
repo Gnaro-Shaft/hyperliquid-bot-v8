@@ -81,8 +81,8 @@ class StrategyEngine:
         # === FILTRES GATE (anti-chop) ===
         adx_val = row["ADX"] if pd.notna(row["ADX"]) else 0.0
         bb_w = row["BB_width"] if pd.notna(row["BB_width"]) else 0.0
-        is_squeeze = bb_w < 0.003
-        is_trending = adx_val >= 20
+        is_squeeze = bb_w < 0.004
+        is_trending = adx_val >= 25
 
         debug["adx"] = f"{adx_val:.1f} ({'TREND' if is_trending else 'RANGE/CHOP'})"
         debug["bb_width_filter"] = f"{bb_w:.4f} ({'OK' if not is_squeeze else 'SQUEEZE — BLOCKED'})"
@@ -203,14 +203,14 @@ class StrategyEngine:
             debug["confirm_15m"] = f"NO DATA ({len(df_15m)} candles) (0)"
 
         # === Normalisation [-2, +2] ===
-        # Score possible : -12 a +12 — seuils plus stricts
-        if score >= 7:
+        # Score possible : -12 a +12 — seuils TRES stricts pour reduire le bruit
+        if score >= 8:
             level = 2
-        elif score >= 3:
+        elif score >= 4:
             level = 1
-        elif score <= -7:
+        elif score <= -8:
             level = -2
-        elif score <= -3:
+        elif score <= -4:
             level = -1
         else:
             level = 0

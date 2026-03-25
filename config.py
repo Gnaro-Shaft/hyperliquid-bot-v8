@@ -34,15 +34,18 @@ LEVELS = {
 SL_PCT = 0.012                  # Stop Loss 1.2%
 TP_PCT = 0.03                   # Take Profit 3% (R:R = 2.5:1)
 MIN_TP_PCT = 0.02               # TP minimum 2%
-TRAIL_PCT = 0.005               # Trailing Stop 0.5% (raisonnable pour scalping)
-TRAILING_TRIGGER_PCT = 0.005    # Active le trailing apres +0.5% de gain
-TRAILING_STEP_PCT = 0.002       # Rehausse le stop tous les +0.2%
+TRAIL_PCT = 0.006               # Trailing Stop 0.6% (fallback)
+TRAILING_TRIGGER_PCT = 0.008    # Active le trailing apres +0.8% de gain
+TRAILING_STEP_PCT = 0.003       # Rehausse le stop tous les +0.3%
 
 # === ANTI-OVERTRADING ===
 MAX_CONSECUTIVE_LOSSES = 3
 PAUSE_DURATION_MINUTES = 30
 MAX_DAILY_DRAWDOWN_PCT = 0.05   # Arret si -5% du solde initial du jour
-COOLDOWN_BETWEEN_TRADES_SEC = 1800  # 30 min entre deux trades
+COOLDOWN_BETWEEN_TRADES_SEC = 2400  # 40 min entre deux trades
+
+# === SIGNAL CONFIRMATION ===
+SIGNAL_CONFIRM_COUNT = 2        # Nombre de scores forts consecutifs requis
 
 # === NOTIFICATIONS TELEGRAM ===
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
