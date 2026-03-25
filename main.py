@@ -405,5 +405,8 @@ class TradingBot:
 
 
 if __name__ == "__main__":
+    import sys
     bot = TradingBot()
     bot.start()
+    # Ne JAMAIS quitter avec code 0 sur Fly (sinon pas de restart)
+    sys.exit(1)
