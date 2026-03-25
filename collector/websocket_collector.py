@@ -108,8 +108,7 @@ class WebSocketCollector:
         # CSV
         self._save_csv(tf, bougie)
 
-        if DEBUG:
-            print(f"[Bougie {tf}] {minute} {bougie['coin']} O:{bougie['open']} C:{bougie['close']} V:{bougie['volume']}")
+        # Logs bougies desactives pour reduire le bruit
 
     def _save_csv(self, tf, bougie):
         csv_file = self.csv_files.get(tf)
