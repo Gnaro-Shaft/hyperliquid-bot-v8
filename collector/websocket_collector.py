@@ -23,6 +23,7 @@ WS_URL = "wss://api.hyperliquid.xyz/ws"
 # Seuil "gros trade" en unites du coin
 LARGE_TRADE_THRESHOLD = {
     "BTC": 0.5,
+    "SOL": 100,
     "ADA": 50000,
 }
 

@@ -4,11 +4,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # === EXCHANGE & PAIRS ===
-PAIRS = ["BTC/USDC:USDC", "ADA/USDC:USDC"]
+PAIRS = ["SOL/USDC:USDC", "BTC/USDC:USDC"]
 
 MIN_COLLATERAL = {
+    "SOL/USDC:USDC": 10,
     "BTC/USDC:USDC": 10,
-    "ADA/USDC:USDC": 10,
 }
 
 # === MONEY MANAGEMENT ===
