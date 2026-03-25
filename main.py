@@ -204,10 +204,16 @@ class TradingBot:
                           f"losses={risk_status['consecutive_losses']} | pnl_day={risk_status['pnl_today']:+.2f}")
 
             except Exception as e:
-                print(f"[BOT][ERREUR] {e}")
                 import traceback
-                traceback.print_exc()
-                self.notifier.error(str(e)[:200])
+                err_msg = traceback.format_exc()
+                print(f"[BOT][ERREUR] {e}")
+                print(err_msg)
+                # Notifier seulement 1 fois sur 5 pour ne pas spammer
+                if not hasattr(self, '_err_count'):
+                    self._err_count = 0
+                self._err_count += 1
+                if self._err_count <= 3 or self._err_count % 10 == 0:
+                    self.notifier.error(f"[{self._err_count}] {str(e)[:200]}")
 
             time.sleep(60)
 
