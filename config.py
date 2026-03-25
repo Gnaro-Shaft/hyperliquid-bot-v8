@@ -59,6 +59,14 @@ MONGO_COLLECTION_SIGNALS = "signals"
 MONGO_COLLECTION_1M = "ohlc_1m"
 MONGO_COLLECTION_15M = "ohlc_15m"
 
+# === DEEP LEARNING DATA COLLECTIONS ===
+MONGO_COLLECTION_ORDERBOOK = "orderbook_snapshots"
+MONGO_COLLECTION_FUNDING = "funding_rates"
+MONGO_COLLECTION_OI = "open_interest"
+MONGO_COLLECTION_TRADES_MARKET = "market_trades"
+DL_SNAPSHOT_INTERVAL = 10       # Secondes entre snapshots orderbook
+DL_REST_INTERVAL = 300          # Secondes entre polls REST (funding/OI)
+
 # === CSV ===
 DATA_DIR = "data"
 CSV_TRADES = os.path.join(DATA_DIR, "trades.csv")

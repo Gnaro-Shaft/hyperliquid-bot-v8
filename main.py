@@ -13,6 +13,7 @@ from config import (
 from strategy.strategy_engine import StrategyEngine
 from trader.ccxt_trader import HyperliquidTrader
 from collector.websocket_collector import WebSocketCollector
+from collector.rest_collector import RestCollector
 from risk.risk_manager import RiskManager
 from utils.notifier import Notifier
 
@@ -20,6 +21,7 @@ from utils.notifier import Notifier
 class TradingBot:
     def __init__(self):
         self.collector = WebSocketCollector()
+        self.rest_collector = RestCollector()
         self.trader = HyperliquidTrader()
         self.risk = RiskManager()
         self.notifier = Notifier()
@@ -36,9 +38,13 @@ class TradingBot:
         signal.signal(signal.SIGINT, self._handle_shutdown)
         signal.signal(signal.SIGTERM, self._handle_shutdown)
 
-        # Lance le collector en thread separee
+        # Lance le collector WS en thread separee
         collector_thread = threading.Thread(target=self._run_collector, daemon=True)
         collector_thread.start()
+
+        # Lance le collector REST (funding/OI) en thread separee
+        rest_thread = threading.Thread(target=self.rest_collector.collect_loop, daemon=True)
+        rest_thread.start()
 
         # Attendre que le collector recup des donnees
         print("[BOT] Attente des premieres donnees du collector...")
