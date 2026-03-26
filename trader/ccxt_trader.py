@@ -236,6 +236,41 @@ class HyperliquidTrader:
                     return None
         return None
 
+    def update_tp(self, new_tp_price):
+        """Met a jour le Take Profit sur l'exchange (annule l'ancien, place le nouveau)."""
+        if not self.pair:
+            return
+        try:
+            # Annuler les ordres TP existants
+            open_orders = self.exchange.fetch_open_orders(self.pair)
+            for order in open_orders:
+                otype = order.get("type", "").lower()
+                # Les ordres TP sont souvent de type 'limit' avec reduceOnly ou 'take_profit'
+                if "take" in otype or "profit" in otype or (
+                    order.get("reduceOnly") and "stop" not in otype
+                ):
+                    self.exchange.cancel_order(order["id"], self.pair)
+                    if DEBUG:
+                        print(f"[TRADER] Ancien TP annule: {order['id']}")
+
+            # Placer le nouveau TP
+            positions = self.fetch_positions()
+            for pos in positions:
+                contracts = float(pos.get("contracts") or 0)
+                if pos.get("symbol") == self.pair and contracts > 0:
+                    side_close = "sell" if pos.get("side") == "long" else "buy"
+                    tp_order = self.exchange.create_order(
+                        self.pair, "limit", side_close, contracts,
+                        price=new_tp_price,
+                        params={"reduceOnly": True}
+                    )
+                    if DEBUG:
+                        print(f"[TRADER] Nouveau TP place @ {new_tp_price:.2f}")
+                    return tp_order
+        except Exception as e:
+            print(f"[TRADER][ERREUR] update_tp: {e}")
+            return None
+
     def cancel_open_orders(self):
         """Annule tous les ordres ouverts (TP/SL) sur la paire."""
         if not self.pair:

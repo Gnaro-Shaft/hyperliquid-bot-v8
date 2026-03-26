@@ -305,6 +305,9 @@ class TradingBot:
                 "trail_trigger": trail_trigger,
                 "trail_step": trail_step,
                 "open_time": time.time(),
+                "best_price": price,
+                "initial_tp_dist": tp,        # Distance TP initiale (%)
+                "current_tp": result.get("tp_price", 0),  # TP actuel sur l'exchange
             }
             print(f"[BOT] Trailing dynamique: distance={trail_distance*100:.2f}% | trigger={trail_trigger*100:.2f}% | step={trail_step*100:.2f}% (ATR={atr_pct*100:.3f}%)")
             rr = tp / sl if sl > 0 else 0
@@ -312,7 +315,7 @@ class TradingBot:
                   f"SL: {result['sl_price']:.2f} | R:R={rr:.1f}:1")
 
     def _manage_trailing(self, last_price):
-        """Gere le trailing stop dynamique basé sur ATR."""
+        """Gere le trailing stop + trailing profit dynamiques basés sur ATR."""
         entry = self.position["entry"]
         side = self.position["side"]
         trail_dist = self.position.get("trail_distance", TRAIL_PCT)
@@ -324,6 +327,40 @@ class TradingBot:
         else:
             gain_pct = (entry - last_price) / entry
 
+        # --- Trailing Profit : remonter le TP quand le prix avance ---
+        best_key = "best_price"
+        best = self.position.get(best_key, entry)
+        if side == "buy" and last_price > best:
+            self.position[best_key] = last_price
+            # Nouveau TP = best_price + distance initiale du TP
+            initial_tp_dist = self.position.get("initial_tp_dist", 0)
+            if initial_tp_dist > 0:
+                new_tp = last_price * (1 + initial_tp_dist * 0.5)  # TP suit a 50% de la distance initiale
+                old_tp = self.position.get("current_tp", 0)
+                if new_tp > old_tp:
+                    self.position["current_tp"] = new_tp
+                    # Mettre a jour le TP sur l'exchange
+                    try:
+                        self.trader.update_tp(new_tp)
+                        print(f"[BOT] 🎯 Trailing Profit rehausse: TP → {new_tp:.2f} (best: {last_price:.2f})")
+                    except Exception as e:
+                        print(f"[BOT] TP update error: {e}")
+
+        elif side == "sell" and last_price < best:
+            self.position[best_key] = last_price
+            initial_tp_dist = self.position.get("initial_tp_dist", 0)
+            if initial_tp_dist > 0:
+                new_tp = last_price * (1 - initial_tp_dist * 0.5)
+                old_tp = self.position.get("current_tp", float("inf"))
+                if new_tp < old_tp:
+                    self.position["current_tp"] = new_tp
+                    try:
+                        self.trader.update_tp(new_tp)
+                        print(f"[BOT] 🎯 Trailing Profit abaisse: TP → {new_tp:.2f} (best: {last_price:.2f})")
+                    except Exception as e:
+                        print(f"[BOT] TP update error: {e}")
+
+        # --- Trailing Stop : proteger les gains ---
         # Activer le trailing apres le seuil dynamique
         if not self.position["trailing_active"] and gain_pct >= trail_trig:
             if side == "buy":
@@ -331,7 +368,7 @@ class TradingBot:
             else:
                 self.position["trailing"] = last_price * (1 + trail_dist)
             self.position["trailing_active"] = True
-            print(f"[BOT] 📈 Trailing active @ {self.position['trailing']:.2f} (gain: {gain_pct*100:.2f}%, distance: {trail_dist*100:.2f}%)")
+            print(f"[BOT] 📈 Trailing Stop active @ {self.position['trailing']:.2f} (gain: {gain_pct*100:.2f}%, distance: {trail_dist*100:.2f}%)")
 
         # Gerer le trailing actif
         if self.position["trailing_active"]:
@@ -341,9 +378,9 @@ class TradingBot:
                 new_trailing = last_price * (1 - trail_dist)
                 if new_trailing > trailing + (entry * trail_step):
                     self.position["trailing"] = new_trailing
-                    print(f"[BOT] 📈 Trailing rehausse @ {new_trailing:.2f}")
+                    print(f"[BOT] 📈 Trailing Stop rehausse @ {new_trailing:.2f}")
                 elif last_price <= trailing:
-                    print(f"[BOT] 🔔 Trailing touche ({last_price:.2f} <= {trailing:.2f})")
+                    print(f"[BOT] 🔔 Trailing Stop touche ({last_price:.2f} <= {trailing:.2f})")
                     result = self.trader.close_position(reason="trailing_stop")
                     if result:
                         self.risk.register_trade_result(result["pnl"])
@@ -353,9 +390,9 @@ class TradingBot:
                 new_trailing = last_price * (1 + trail_dist)
                 if new_trailing < trailing - (entry * trail_step):
                     self.position["trailing"] = new_trailing
-                    print(f"[BOT] 📉 Trailing abaisse @ {new_trailing:.2f}")
+                    print(f"[BOT] 📉 Trailing Stop abaisse @ {new_trailing:.2f}")
                 elif last_price >= trailing:
-                    print(f"[BOT] 🔔 Trailing touche ({last_price:.2f} >= {trailing:.2f})")
+                    print(f"[BOT] 🔔 Trailing Stop touche ({last_price:.2f} >= {trailing:.2f})")
                     result = self.trader.close_position(reason="trailing_stop")
                     if result:
                         self.risk.register_trade_result(result["pnl"])
@@ -381,6 +418,9 @@ class TradingBot:
             "trailing": None,
             "trailing_active": False,
             "open_time": None,
+            "best_price": None,
+            "initial_tp_dist": 0,
+            "current_tp": 0,
         }
 
     def _run_collector(self):
