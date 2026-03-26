@@ -297,18 +297,27 @@ class HyperliquidTrader:
             return []
 
     def has_open_position(self):
-        """Retourne (bool, position_info) pour la paire courante."""
-        positions = self.fetch_positions()
-        for pos in positions:
-            contracts = float(pos.get("contracts") or 0)
-            if pos.get("symbol") == self.pair and contracts > 0:
-                return True, {
-                    "side": pos.get("side"),
-                    "entry_price": float(pos.get("entryPrice") or 0),
-                    "contracts": contracts,
-                    "mark_price": float(pos.get("markPrice") or 0),
-                    "unrealized_pnl": float(pos.get("unrealizedPnl") or 0),
-                }
+        """Retourne (bool, position_info) pour la paire courante ou toute paire configuree."""
+        # Scanner toutes les paires configurees (pas juste self.pair)
+        pairs_to_check = [self.pair] if self.pair else PAIRS
+        for pair in pairs_to_check:
+            try:
+                positions = self.exchange.fetch_positions([pair])
+                for pos in positions:
+                    contracts = float(pos.get("contracts") or 0)
+                    if contracts > 0:
+                        # Mettre a jour self.pair si on detecte une position
+                        if not self.pair:
+                            self.pair = pos.get("symbol", pair)
+                        return True, {
+                            "side": pos.get("side"),
+                            "entry_price": float(pos.get("entryPrice") or 0),
+                            "contracts": contracts,
+                            "mark_price": float(pos.get("markPrice") or 0),
+                            "unrealized_pnl": float(pos.get("unrealizedPnl") or 0),
+                        }
+            except Exception as e:
+                print(f"[TRADER][ERREUR] fetch_positions({pair}): {e}")
         return False, None
 
     def get_last_closed_trade(self, since_ms=None):
