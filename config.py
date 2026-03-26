@@ -64,7 +64,7 @@ MONGO_COLLECTION_ORDERBOOK = "orderbook_snapshots"
 MONGO_COLLECTION_FUNDING = "funding_rates"
 MONGO_COLLECTION_OI = "open_interest"
 MONGO_COLLECTION_TRADES_MARKET = "market_trades"
-DL_SNAPSHOT_INTERVAL = 10       # Secondes entre snapshots orderbook
+DL_SNAPSHOT_INTERVAL = 30       # Secondes entre snapshots orderbook
 DL_REST_INTERVAL = 300          # Secondes entre polls REST (funding/OI)
 
 # === CSV ===
