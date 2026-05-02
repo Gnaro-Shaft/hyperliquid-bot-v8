@@ -114,8 +114,10 @@ def adx(df, period=14):
 
 
 def ema_slope(ema_series, lookback=3):
-    """Pente de l'EMA sur N periodes — detecte l'acceleration de tendance."""
-    return (ema_series - ema_series.shift(lookback)) / ema_series.shift(lookback) * 100
+    """Pente de l'EMA sur N periodes — detecte l'acceleration de tendance.
+    Retourne un pourcentage. Protege contre division par zero/NaN."""
+    prev = ema_series.shift(lookback).replace(0, float("nan"))
+    return (ema_series - prev) / prev * 100
 
 
 if __name__ == "__main__":

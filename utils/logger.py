@@ -59,7 +59,9 @@ class Logger:
         if self.csv_ready:
             self._append_csv(self.csv_signals, [
                 "timestamp", "minute", "coin", "interval",
-                "score", "raw_score", "label", "color", "details"
+                "score", "signal_level", "raw_score", "label", "color",
+                "rsi_14", "adx_14", "bb_upper", "bb_lower", "bb_width",
+                "gate_passed", "details"
             ], info)
 
     def log_trade(self, trade_info):

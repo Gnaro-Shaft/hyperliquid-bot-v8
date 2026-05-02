@@ -66,16 +66,30 @@ class HyperliquidTrader:
             print(f"[TRADER] Position size: {amount:.6f} ({self.pair})")
         return round(amount, 6)
 
-    def place_order_with_tp_sl(self, side, price, tp_pct=None, sl_pct=None):
+    def place_order_with_tp_sl(self, side, price, tp_pct=None, sl_pct=None, size_factor=1.0):
         """Ouvre une position + TP/SL. Retourne dict avec les infos ou None."""
         if not self.pair:
             print("[TRADER] Aucune paire selectionnee")
             return None
 
-        size = self.get_position_size(price)
+        size = round(self.get_position_size(price) * max(0.3, min(1.0, size_factor)), 6)
         if size <= 0:
             print("[TRADER] Pas assez de solde pour trader")
             return None
+
+        # Vérifier la valeur minimale de l'ordre (Hyperliquid exige $10 minimum)
+        min_col = MIN_COLLATERAL.get(self.pair, 10)
+        order_value = size * price
+        if order_value < min_col:
+            # Essayer de remonter au minimum exact si le solde le permet
+            min_size = round((min_col * 1.02) / price, 6)  # +2% de marge sur le minimum
+            base_size = self.get_position_size(price)       # taille sans size_factor
+            if min_size <= base_size:
+                size = min_size
+                print(f"[TRADER] Taille ajustée au minimum exchange: {size * price:.2f} USDC (factor={size_factor:.2f} → forcé)")
+            else:
+                print(f"[TRADER] Solde insuffisant même au minimum: {base_size * price:.2f} USDC < {min_col} USDC")
+                return None
 
         tp_pct = tp_pct or TP_PCT
         sl_pct = sl_pct or SL_PCT
@@ -114,7 +128,7 @@ class HyperliquidTrader:
                 type="market",
                 side=closing_side,
                 amount=size,
-                price=price,
+                price=tp_price,   # prix d'exécution = niveau TP (était: entry price — BUG)
                 params={"takeProfitPrice": tp_price, "reduceOnly": True}
             )
             tp_order_id = tp_order.get("id")
@@ -130,7 +144,7 @@ class HyperliquidTrader:
                 type="market",
                 side=closing_side,
                 amount=size,
-                price=price,
+                price=sl_price,   # prix d'exécution = niveau SL (était: entry price — BUG CRITIQUE)
                 params={"stopLossPrice": sl_price, "reduceOnly": True}
             )
             sl_order_id = sl_order.get("id")
@@ -236,24 +250,142 @@ class HyperliquidTrader:
                     return None
         return None
 
-    def update_tp(self, new_tp_price):
-        """Met a jour le Take Profit sur l'exchange (annule l'ancien, place le nouveau)."""
+    def close_partial_position(self, ratio=0.5, new_sl_price=None):
+        """Ferme `ratio`% de la position et replace le SL au niveau indiqué."""
         if not self.pair:
-            return
-        try:
-            # Annuler les ordres TP existants
-            open_orders = self.exchange.fetch_open_orders(self.pair)
-            for order in open_orders:
-                otype = order.get("type", "").lower()
-                # Les ordres TP sont souvent de type 'limit' avec reduceOnly ou 'take_profit'
-                if "take" in otype or "profit" in otype or (
-                    order.get("reduceOnly") and "stop" not in otype
-                ):
-                    self.exchange.cancel_order(order["id"], self.pair)
-                    if DEBUG:
-                        print(f"[TRADER] Ancien TP annule: {order['id']}")
+            return None
 
-            # Placer le nouveau TP
+        # 1. Annuler tous les ordres TP/SL existants
+        self.cancel_open_orders()
+
+        # 2. Prix actuel
+        try:
+            ticker = self.exchange.fetch_ticker(self.pair)
+            current_price = float(ticker.get("last", 0))
+        except Exception:
+            current_price = 0
+
+        # 3. Fermer la partie
+        positions = self.fetch_positions()
+        for pos in positions:
+            contracts = float(pos.get("contracts") or 0)
+            if pos.get("symbol") == self.pair and contracts > 0:
+                full_amt = abs(contracts)
+                partial_amt = round(full_amt * ratio, 6)
+                remaining_amt = round(full_amt - partial_amt, 6)
+                close_side = "sell" if pos.get("side") == "long" else "buy"
+                entry_price = float(pos.get("entryPrice") or 0)
+
+                try:
+                    order = self.exchange.create_order(
+                        symbol=self.pair,
+                        type="market",
+                        side=close_side,
+                        amount=partial_amt,
+                        price=current_price,
+                        params={"maxSlippagePcnt": 0.01, "reduceOnly": True}
+                    )
+                    fill_price = float(order.get("average") or order.get("price") or current_price) or current_price
+                    pnl = (fill_price - entry_price) * partial_amt if pos.get("side") == "long" \
+                          else (entry_price - fill_price) * partial_amt
+
+                    print(f"[TRADER] ✅ Partial TP {ratio*100:.0f}% | {partial_amt} @ {fill_price:.2f} | PnL: {pnl:+.4f}")
+
+                    # 4. Nouveau SL pour la partie restante
+                    if new_sl_price and remaining_amt > 0:
+                        self.exchange.create_order(
+                            self.pair, "market", close_side, remaining_amt,
+                            price=new_sl_price,
+                            params={"stopLossPrice": new_sl_price, "reduceOnly": True}
+                        )
+                        print(f"[TRADER] SL breakeven @ {new_sl_price:.2f} pour {remaining_amt} contrats restants")
+
+                    self.logger.log_trade({
+                        "pair": self.pair, "side": pos.get("side", close_side),
+                        "action": "partial_close", "entry_price": entry_price,
+                        "exit_price": fill_price, "size": partial_amt,
+                        "pnl": pnl, "reason": "partial_tp",
+                    })
+                    return {"pnl": pnl, "fill_price": fill_price,
+                            "partial_amt": partial_amt, "remaining_amt": remaining_amt}
+
+                except Exception as e:
+                    print(f"[TRADER][ERREUR] close_partial: {e}")
+                    return None
+        return None
+
+    def update_sl(self, new_sl_price, old_sl_order_id=None):
+        """Met à jour le Stop Loss (annule l'ancien par ID ou par type, place le nouveau).
+
+        old_sl_order_id : ID de l'ordre SL à annuler (plus fiable que la détection par type).
+        Retourne le nouvel ordre SL ou None si échec.
+        """
+        if not self.pair:
+            return None
+        try:
+            # 1. Annuler l'ancien SL — par ID si disponible, sinon par type
+            if old_sl_order_id:
+                try:
+                    self.exchange.cancel_order(old_sl_order_id, self.pair)
+                    if DEBUG:
+                        print(f"[TRADER] Ancien SL annulé (by ID): {old_sl_order_id}")
+                except Exception:
+                    pass  # Peut déjà être exécuté/annulé — on continue quand même
+            else:
+                # Fallback : détection par type d'ordre
+                open_orders = self.exchange.fetch_open_orders(self.pair)
+                for order in open_orders:
+                    otype = order.get("type", "").lower()
+                    if "stop" in otype or (
+                        order.get("reduceOnly") and "take" not in otype and "profit" not in otype
+                    ):
+                        self.exchange.cancel_order(order["id"], self.pair)
+                        if DEBUG:
+                            print(f"[TRADER] Ancien SL annulé (by type): {order['id']}")
+
+            # 2. Placer le nouveau SL
+            positions = self.fetch_positions()
+            for pos in positions:
+                contracts = float(pos.get("contracts") or 0)
+                if pos.get("symbol") == self.pair and contracts > 0:
+                    side_close = "sell" if pos.get("side") == "long" else "buy"
+                    sl_order = self.exchange.create_order(
+                        self.pair, "market", side_close, contracts,
+                        price=new_sl_price,
+                        params={"stopLossPrice": new_sl_price, "reduceOnly": True}
+                    )
+                    if DEBUG:
+                        print(f"[TRADER] Nouveau SL @ {new_sl_price:.2f} (order: {sl_order.get('id')})")
+                    return sl_order
+        except Exception as e:
+            print(f"[TRADER][ERREUR] update_sl: {e}")
+            return None
+
+    def update_tp(self, new_tp_price, old_tp_order_id=None):
+        """Met a jour le Take Profit (annule l'ancien par ID ou par type, place le nouveau)."""
+        if not self.pair:
+            return None
+        try:
+            # 1. Annuler l'ancien TP — par ID si disponible
+            if old_tp_order_id:
+                try:
+                    self.exchange.cancel_order(old_tp_order_id, self.pair)
+                    if DEBUG:
+                        print(f"[TRADER] Ancien TP annule (by ID): {old_tp_order_id}")
+                except Exception:
+                    pass
+            else:
+                open_orders = self.exchange.fetch_open_orders(self.pair)
+                for order in open_orders:
+                    otype = order.get("type", "").lower()
+                    if "take" in otype or "profit" in otype or (
+                        order.get("reduceOnly") and "stop" not in otype
+                    ):
+                        self.exchange.cancel_order(order["id"], self.pair)
+                        if DEBUG:
+                            print(f"[TRADER] Ancien TP annule (by type): {order['id']}")
+
+            # 2. Placer le nouveau TP
             positions = self.fetch_positions()
             for pos in positions:
                 contracts = float(pos.get("contracts") or 0)
@@ -265,7 +397,7 @@ class HyperliquidTrader:
                         params={"reduceOnly": True}
                     )
                     if DEBUG:
-                        print(f"[TRADER] Nouveau TP place @ {new_tp_price:.2f}")
+                        print(f"[TRADER] Nouveau TP @ {new_tp_price:.2f} (order: {tp_order.get('id')})")
                     return tp_order
         except Exception as e:
             print(f"[TRADER][ERREUR] update_tp: {e}")

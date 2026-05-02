@@ -7,7 +7,6 @@ from config import (
     MAX_CONSECUTIVE_LOSSES,
     PAUSE_DURATION_MINUTES,
     MAX_DAILY_DRAWDOWN_PCT,
-    COOLDOWN_BETWEEN_TRADES_SEC,
     KILL_SWITCH_FILE,
     MONGO_URL, MONGO_DB,
     DEBUG,
@@ -125,12 +124,6 @@ class RiskManager:
         if now < self.pause_until:
             remaining = int((self.pause_until - now) / 60)
             return False, f"Pause anti-overtrading ({remaining}min restantes)"
-
-        # Cooldown entre trades
-        elapsed = now - self.last_trade_time
-        if self.last_trade_time > 0 and elapsed < COOLDOWN_BETWEEN_TRADES_SEC:
-            remaining = int(COOLDOWN_BETWEEN_TRADES_SEC - elapsed)
-            return False, f"Cooldown entre trades ({remaining}s restantes)"
 
         # Drawdown max journalier
         if current_balance and self.daily_start_balance:

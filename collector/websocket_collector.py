@@ -11,7 +11,7 @@ from pymongo import MongoClient, ASCENDING
 
 from config import (
     PAIRS, MONGO_URL, MONGO_DB,
-    MONGO_COLLECTION_1M, MONGO_COLLECTION_15M,
+    MONGO_COLLECTION_1M, MONGO_COLLECTION_15M, MONGO_COLLECTION_1H,
     MONGO_COLLECTION_ORDERBOOK, MONGO_COLLECTION_TRADES_MARKET,
     DATA_DIR, DEBUG, DL_SNAPSHOT_INTERVAL,
 )
@@ -43,10 +43,13 @@ class WebSocketCollector:
         else:
             self._mongo_connected = False
 
+        self._live_prices = {}  # {coin: dernier prix live}
+
         os.makedirs(DATA_DIR, exist_ok=True)
         self.csv_files = {
             "1m": os.path.join(DATA_DIR, "ohlc_1m.csv"),
             "15m": os.path.join(DATA_DIR, "ohlc_15m.csv"),
+            "1h": os.path.join(DATA_DIR, "ohlc_1h.csv"),
         }
         self.last_candle_time = 0
         self._running = True
@@ -76,6 +79,10 @@ class WebSocketCollector:
         except Exception as e:
             print(f"[COLLECTOR] Index creation: {e}")
 
+    def get_live_price(self, coin):
+        """Retourne le dernier prix live pour un coin (midprice OB ou close candle)."""
+        return self._live_prices.get(coin, 0)
+
     @property
     def is_alive(self):
         if self.last_candle_time == 0:
@@ -88,8 +95,8 @@ class WebSocketCollector:
     async def subscribe(self, ws):
         """Subscribe a tous les channels : candles + l2Book + trades."""
         for coin in COINS:
-            # Candles 1m + 15m (existant)
-            for tf in ["1m", "15m"]:
+            # Candles 1m + 15m + 1h
+            for tf in ["1m", "15m", "1h"]:
                 sub = {
                     "method": "subscribe",
                     "subscription": {"type": "candle", "coin": coin, "interval": tf}
@@ -148,9 +155,10 @@ class WebSocketCollector:
         }
 
         self.last_candle_time = time.time()
+        self._live_prices[bougie["coin"]] = bougie["close"]
 
         if self._mongo_connected:
-            col = MONGO_COLLECTION_1M if tf == "1m" else MONGO_COLLECTION_15M
+            col = MONGO_COLLECTION_1M if tf == "1m" else (MONGO_COLLECTION_15M if tf == "15m" else MONGO_COLLECTION_1H)
             try:
                 self.mongo[col].update_one(
                     {"timestamp": bougie["timestamp"], "coin": bougie["coin"]},
@@ -187,6 +195,10 @@ class WebSocketCollector:
         best_ask = float(asks[0].get("px", 0))
         spread = best_ask - best_bid
         mid = (best_ask + best_bid) / 2
+
+        # Midprice = prix le plus précis en temps réel
+        if mid > 0:
+            self._live_prices[coin] = mid
 
         # Depth top 5
         bid_depth = sum(float(b.get("sz", 0)) * float(b.get("px", 0)) for b in bids[:5])
