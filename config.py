@@ -58,7 +58,7 @@ COOLDOWN_WIN_MULT  = 0.75       # ×0.75 après chaque gain  (10→7.5→5 min)
 COOLDOWN_BETWEEN_TRADES_SEC = COOLDOWN_BASE_SEC  # alias rétrocompat (risk_manager, backtest)
 
 # === SIGNAL CONFIRMATION ===
-SIGNAL_CONFIRM_COUNT = 2        # Nombre de scores forts consecutifs requis
+SIGNAL_CONFIRM_COUNT = 3        # Nombre de scores forts consecutifs requis
 
 # === LOOP TIMING ===
 LOOP_INTERVAL = 15              # Boucle principale (secondes)
@@ -70,7 +70,7 @@ PULLBACK_EXPIRY_SEC = 45        # Délai max avant entrée au marché (3 candles
 
 # === AUTO-CALIBRATION SEUIL ===
 AUTOCAL_LOOKBACK_TRADES = 20    # Nb de trades récents pour calibrer
-SIGNAL_THRESHOLD_DEFAULT = 8    # Seuil de score par défaut
+SIGNAL_THRESHOLD_DEFAULT = 9    # Seuil de score par défaut
 SIGNAL_THRESHOLD_MIN = 7        # Plancher (plus permissif = plus de trades)
 SIGNAL_THRESHOLD_MAX = 10       # Plafond (plus sélectif = moins de trades)
 
