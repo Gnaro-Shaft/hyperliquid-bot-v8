@@ -33,6 +33,12 @@ try:
 except ImportError:
     _AUTO_TRAINER_AVAILABLE = False
 
+try:
+    from backtest.backtest_scheduler import BacktestScheduler
+    _BACKTEST_SCHEDULER_AVAILABLE = True
+except ImportError:
+    _BACKTEST_SCHEDULER_AVAILABLE = False
+
 COINS = [p.split("/")[0] for p in PAIRS]
 
 
@@ -99,6 +105,16 @@ class TradingBot:
                 name="AutoTrainerML"
             ).start()
             print("[BOT] 🤖 AutoTrainer ML démarré (vérifie toutes les 6h)")
+
+        # Backtest Scheduler — rapport hebdomadaire sur Telegram
+        if _BACKTEST_SCHEDULER_AVAILABLE:
+            self._backtest_scheduler = BacktestScheduler(notifier=self.notifier)
+            threading.Thread(
+                target=self._backtest_scheduler.run_loop,
+                daemon=True,
+                name="BacktestScheduler"
+            ).start()
+            print("[BOT] 📊 BacktestScheduler démarré (backtest hebdomadaire auto)")
 
         # Init risk manager
         balance = self.trader._get_total_balance()
