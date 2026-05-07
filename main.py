@@ -471,28 +471,36 @@ class TradingBot:
 
     def _check_correlation(self, coin, direction):
         """
-        #2 Filtre corrélation SOL/BTC.
+        v8.5 — Filtre corrélation BTC/SOL (gestion risque drawdown).
         Retourne (blocked: bool, size_boost: float).
-        - blocked=True si une paire sœur a une position OPPOSÉE active
-        - size_boost=0.15 si une paire sœur confirme la même direction
+
+        Logique :
+        - BLOQUÉ si une paire sœur a une position MÊME DIRECTION active
+          → évite BTC SHORT + SOL SHORT simultanés = drawdown ×2 si retournement
+        - size_boost=0.15 si une paire sœur a un signal confirmé dans le même sens
+          MAIS aucune position active (signal corroboré = conviction ↑)
         """
         for other_coin in COINS:
             if other_coin == coin:
                 continue
-            other_pos = self.positions[other_coin]
+            other_pos  = self.positions[other_coin]
             other_score = self._last_signal_scores.get(other_coin, 0)
 
-            # Conflit avec position active opposée
+            # Conflit : même direction déjà active → risque de drawdown concentré
             if other_pos["active"] and other_pos.get("side"):
                 other_side = other_pos["side"]
-                if (direction == "buy" and other_side == "sell") or \
-                   (direction == "sell" and other_side == "buy"):
+                same_dir = (direction == "buy"  and other_side == "buy") or \
+                           (direction == "sell" and other_side == "sell")
+                if same_dir:
+                    print(f"  [CORR][{coin}] Bloqué — {other_coin} déjà {other_side} "
+                          f"(même direction, risque drawdown concentré)")
                     return True, 0.0  # BLOQUÉ
 
-            # Corroboration : signal récent dans le même sens
-            if (direction == "buy" and other_score == 2) or \
-               (direction == "sell" and other_score == -2):
-                return False, 0.15  # Boost +15%
+            # Corroboration : signal récent dans le même sens, pas de position active
+            if not other_pos["active"]:
+                if (direction == "buy"  and other_score == 2) or \
+                   (direction == "sell" and other_score == -2):
+                    return False, 0.15  # Boost +15% — signal confirmé par paire sœur
 
         return False, 0.0
 
