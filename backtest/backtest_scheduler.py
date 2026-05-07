@@ -119,6 +119,7 @@ class BacktestScheduler:
         ]
 
         alerts = []
+        suggestions = []  # suggestions config par coin
 
         for coin, res in results.items():
             if not res or "error" in res:
@@ -136,32 +137,35 @@ class BacktestScheduler:
             rr      = res.get("rr_ratio", 0)
             dd      = res.get("max_drawdown_pct", 0)
             sharpe  = res.get("sharpe_ratio", 0)
+            reasons = res.get("exit_reasons", {})
+
+            # Calcul % sorties par type
+            sl_pct  = round(reasons.get("sl", 0) / n * 100) if n else 0
+            tp_pct  = round(reasons.get("tp", 0) / n * 100) if n else 0
+            rev_pct = round(reasons.get("signal_reverse", 0) / n * 100) if n else 0
 
             # Icône performance
-            if pnl > 1:
-                icon = "📈"
-            elif pnl > 0:
-                icon = "📊"
-            else:
-                icon = "📉"
+            icon = "📈" if pnl > 1 else ("📊" if pnl > 0 else "📉")
 
             lines.append(f"{icon} <b>{coin}</b> — {n} trades (✅{wins} ❌{losses})")
             lines.append(f"  Win: <b>{wr}%</b> | PnL: <b>{pnl:+.2f}%</b>")
             lines.append(f"  PF: <b>{pf}</b> | R:R: <b>{rr}</b> | DD: <b>{dd}%</b>")
-            lines.append(f"  Sharpe: {sharpe}")
+            lines.append(f"  Sorties: SL {sl_pct}% | TP {tp_pct}% | Rev {rev_pct}%")
             lines.append("")
 
-            # Collecte des alertes
+            # ── Alertes ────────────────────────────────────────
             if pf < ALERT_PF_CRITICAL:
                 alerts.append(f"🚨 {coin} PF critique ({pf}) — stratégie en perte")
             elif pf < ALERT_PF_WARN:
                 alerts.append(f"⚠️ {coin} PF faible ({pf}) — surveiller")
-
             if dd > ALERT_DD_CRITICAL:
                 alerts.append(f"🚨 {coin} drawdown critique ({dd}%)")
-
             if wr < ALERT_WINRATE_WARN and n >= 10:
                 alerts.append(f"⚠️ {coin} win rate faible ({wr}%)")
+
+            # ── Diagnostic → suggestions config ────────────────
+            diag = self._diagnose(coin, wr, pf, rr, dd, sl_pct, tp_pct, n)
+            suggestions.extend(diag)
 
         # Section alertes
         if alerts:
@@ -169,7 +173,14 @@ class BacktestScheduler:
             for a in alerts:
                 lines.append(f"  {a}")
             lines.append("")
-        else:
+
+        # Section suggestions config
+        if suggestions:
+            lines.append("<b>🔧 Suggestions config.py :</b>")
+            for s in suggestions:
+                lines.append(f"  {s}")
+            lines.append("")
+        elif not alerts:
             lines.append("✅ Tous les indicateurs dans les limites normales")
             lines.append("")
 
@@ -179,6 +190,72 @@ class BacktestScheduler:
         lines.append(f"🔄 Prochain backtest : {next_run}")
 
         return "\n".join(lines)
+
+    def _diagnose(self, coin, wr, pf, rr, dd, sl_pct, tp_pct, n) -> list:
+        """
+        Mappe les symptômes de performance vers des suggestions concrètes de config.py.
+        Retourne une liste de strings prêtes à insérer dans le message Telegram.
+        """
+        tips = []
+
+        # Pas assez de trades pour diagnostiquer
+        if n < 10:
+            return tips
+
+        # ── R:R trop faible ────────────────────────────────────
+        # Cause probable : sorties breakeven trop précoces (BREAKEVEN_TRIGGER trop bas)
+        if rr < 0.8 and sl_pct > 75:
+            tips.append(
+                f"[{coin}] R:R faible ({rr}) + {sl_pct}% SL exits\n"
+                f"    → Essayer BREAKEVEN_TRIGGER_PCT ↑ (ex: 0.012→0.015)\n"
+                f"    → Ou TRAILING_TRIGGER_PCT ↓ pour activer le trail plus tôt"
+            )
+
+        # ── TP jamais atteint ──────────────────────────────────
+        # Cause probable : TP trop loin ou trail trop large
+        if tp_pct < 5 and rr < 1.0:
+            tips.append(
+                f"[{coin}] TP atteint seulement {tp_pct}% des trades\n"
+                f"    → Essayer MIN_TP_PCT ↓ ou TRAIL_PCT ↓ (trail plus serré)"
+            )
+
+        # ── Win rate trop faible ───────────────────────────────
+        # Cause probable : signal pas assez sélectif
+        if wr < 45 and pf < 1.0:
+            tips.append(
+                f"[{coin}] Win rate {wr}% + PF {pf} → signaux peu fiables\n"
+                f"    → Essayer SIGNAL_THRESHOLD_DEFAULT ↑ (ex: 8→9)\n"
+                f"    → Ou SIGNAL_CONFIRM_COUNT ↑ (ex: 2→3)"
+            )
+        elif wr < 45:
+            tips.append(
+                f"[{coin}] Win rate bas ({wr}%) mais PF OK — R:R compense\n"
+                f"    → Normal si R:R > 1.3, pas d'action requise"
+            )
+
+        # ── Drawdown trop élevé ────────────────────────────────
+        # Cause probable : taille de position ou pertes consécutives
+        if dd > ALERT_DD_CRITICAL:
+            tips.append(
+                f"[{coin}] Drawdown {dd}% trop élevé\n"
+                f"    → Essayer POSITION_SIZE_PCT ↓ (ex: 0.30→0.25)\n"
+                f"    → Ou MAX_CONSECUTIVE_LOSSES ↓ (ex: 3→2)"
+            )
+
+        # ── PF faible avec bon R:R ─────────────────────────────
+        # Cause probable : trop de trades (overtrading) ou signal noisy
+        if pf < 1.1 and rr >= 1.0 and wr < 45:
+            tips.append(
+                f"[{coin}] PF {pf} malgré R:R {rr} — trop de faux signaux\n"
+                f"    → Essayer SIGNAL_CONFIRM_COUNT ↑ (ex: 2→3)\n"
+                f"    → Ou vérifier Gate ADX (seuil 25 → 28)"
+            )
+
+        # ── Tout va bien ───────────────────────────────────────
+        if not tips and pf >= ALERT_PF_WARN and rr >= 1.0:
+            tips.append(f"[{coin}] ✅ Paramètres optimaux — aucune action")
+
+        return tips
 
     # ── Persistance état ────────────────────────────────────────
 
