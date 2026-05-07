@@ -213,18 +213,29 @@ class StrategyEngine:
         is_squeeze = bb_w < 0.004
         is_trending = adx_val >= 25
 
-        debug["adx"] = f"{adx_val:.1f} ({'TREND' if is_trending else 'RANGE/CHOP'})"
+        # Régime de marché — déterminé avant les gates
+        if adx_val >= 30:
+            regime = "STRONG"       # Tendance confirmée → seuil normal (8)
+            regime_threshold_adj = 0
+        elif adx_val >= 25:
+            regime = "WEAK"         # Tendance faible → seuil +1 (9) — plus sélectif
+            regime_threshold_adj = 1
+        else:
+            regime = "RANGE"        # Chop/range → bloqué
+            regime_threshold_adj = 0
+
+        debug["adx"] = f"{adx_val:.1f} ({regime})"
         debug["bb_width_filter"] = f"{bb_w:.4f} ({'OK' if not is_squeeze else 'SQUEEZE — BLOCKED'})"
 
         if not is_trending:
-            debug["gate"] = f"BLOCKED — ADX={adx_val:.1f} < 20 (range/chop)"
+            debug["gate"] = f"BLOCKED — ADX={adx_val:.1f} < 25 ({regime})"
             return self._gate_blocked(debug, row)
 
         if is_squeeze:
-            debug["gate"] = f"BLOCKED — BB width={bb_w:.4f} < 0.003 (squeeze)"
+            debug["gate"] = f"BLOCKED — BB width={bb_w:.4f} < 0.004 (squeeze)"
             return self._gate_blocked(debug, row)
 
-        debug["gate"] = "PASSED"
+        debug["gate"] = f"PASSED ({regime})"
 
         # === Pré-calcul tendances multi-TF ===
         # 1m — momentum court-terme (entrée précise)
@@ -472,7 +483,10 @@ class StrategyEngine:
 
         # === Normalisation [-2, +2] ===
         # score_threshold : dynamique via auto-calibration (défaut SIGNAL_THRESHOLD_DEFAULT)
-        threshold = score_threshold if score_threshold is not None else SIGNAL_THRESHOLD_DEFAULT
+        # + regime_threshold_adj : +1 si tendance faible (ADX 25-30) → seuil 9 au lieu de 8
+        base_threshold = score_threshold if score_threshold is not None else SIGNAL_THRESHOLD_DEFAULT
+        threshold = base_threshold + regime_threshold_adj
+        debug["regime"] = f"{regime} (ADX={adx_val:.1f}, seuil±2={threshold})"
         if score >= threshold:
             level = 2
         elif score >= 4:
@@ -518,8 +532,8 @@ class StrategyEngine:
             elif ml_conf < ML_PENALTY_THRESHOLD:
                 score -= 1
                 debug["gate_ml"] = f"PENALTY — confidence={ml_conf:.3f} < {ML_PENALTY_THRESHOLD} (-1)"
-                # Re-normaliser après pénalité
-                threshold = score_threshold if score_threshold is not None else SIGNAL_THRESHOLD_DEFAULT
+                # Re-normaliser après pénalité (conserver l'ajustement régime)
+                threshold = (score_threshold if score_threshold is not None else SIGNAL_THRESHOLD_DEFAULT) + regime_threshold_adj
                 if score >= threshold:
                     level = 2
                 elif score >= 4:
@@ -578,6 +592,7 @@ class StrategyEngine:
             "dynamic_sl": dynamic_sl,
             "trend_1h": trend_1h,
             "trend_1m": "bull" if confirms_bull_1m else ("bear" if confirms_bear_1m else "neutral"),
+            "regime": regime,
             "ml_confidence": float(debug.get("gate_ml", "N/A").split("=")[-1].split(" ")[0])
                              if "confidence=" in debug.get("gate_ml", "") else None,
             "is_squeeze": is_squeeze,
