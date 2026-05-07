@@ -60,9 +60,10 @@ class BacktestEngine(StrategyEngine):
         self._df_1m_full = df_1m.reset_index(drop=True)
         self._df_15m_full = df_15m.reset_index(drop=True)
         self._df_1h_full = df_1h.sort_values("timestamp").reset_index(drop=True) if df_1h is not None and not df_1h.empty else pd.DataFrame()
-        self._current_idx = 100   # Warmup : 100 bougies 1m pour les indicateurs
+        self._current_idx = 750   # Warmup : 750 bougies 1m = 50 bougies 15m minimum
         self.logger = MockLogger()
         self.mongo = None
+        self.ml_predictor = None   # Pas de ML en backtest
 
         # Données marché historiques (triées par timestamp pour bisect)
         self._df_funding = df_funding.sort_values("timestamp").reset_index(drop=True) if df_funding is not None and not df_funding.empty else None

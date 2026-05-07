@@ -35,13 +35,13 @@ SL_PCT = 0.012                  # Stop Loss 1.2%
 TP_PCT = 0.03                   # Take Profit 3% (R:R = 2.5:1)
 MIN_TP_PCT = 0.02               # TP minimum 2%
 TRAIL_PCT = 0.006               # Trailing Stop 0.6% — assez large pour capturer vrai mouvement
-TRAILING_TRIGGER_PCT = 0.012    # Active le trailing apres +1.2% (trade bien en profit avant de protéger)
+TRAILING_TRIGGER_PCT = 0.010    # Active le trailing apres +1.0% (était 1.2%)
 TRAILING_STEP_PCT = 0.003       # Rehausse le stop tous les +0.3%
 
 # === BREAKEVEN STOP ===
 # Seuil minimum pour couvrir les frais Hyperliquid (~0.1% aller-retour sur 30% de position)
-# En dessous de 0.5% de gain, le "breakeven" est en réalité une perte nette après frais.
-BREAKEVEN_TRIGGER_PCT = 0.005   # Protéger seulement après +0.5% (réel profit après frais)
+# Monté à 1.0% (était 0.5%) — évite les sorties breakeven prématurées, améliore R:R 0.6→1.4
+BREAKEVEN_TRIGGER_PCT = 0.010   # Protéger seulement après +1.0% (était 0.5%)
 BREAKEVEN_OFFSET_PCT = 0.002    # SL placé à entry + 0.2% (buffer net positif garanti)
 
 # === ANTI-OVERTRADING ===
