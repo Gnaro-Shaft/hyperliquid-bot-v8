@@ -26,6 +26,8 @@ from collector.websocket_collector import WebSocketCollector
 from collector.rest_collector import RestCollector
 from risk.risk_manager import RiskManager
 from utils.notifier import Notifier
+from utils.sizing import size_factor
+from utils.reporting import daily_report_window
 
 try:
     from ml.auto_trainer import AutoTrainer
@@ -78,6 +80,22 @@ class TradingBot:
     def start(self):
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
+        # Health-check MongoDB — dépendance dure : toute la pipeline live passe
+        # par Mongo (collector → MongoDB → stratégie). Sans elle, aucun signal.
+        if not self._check_mongo_health():
+            try:
+                self.notifier.error(
+                    "🔴 <b>DÉMARRAGE AVORTÉ</b>\n"
+                    "MongoDB injoignable — le bot ne peut pas produire de signaux.\n"
+                    "Nouvelle tentative au prochain redémarrage."
+                )
+            except Exception:
+                pass
+            print("[BOT] ❌ Arrêt : MongoDB indisponible au démarrage.")
+            time.sleep(30)   # throttle la boucle de restart Fly (policy=always)
+            import sys
+            sys.exit(1)
 
         # Collectors en threads dédiés
         threading.Thread(target=self._run_collector, daemon=True).start()
@@ -570,25 +588,19 @@ class TradingBot:
           - SL 3× (ATR très élevé)       → vol_factor = 0.33 (plancher 0.3)
         Garantit un risque dollar quasi-constant par trade quelle que soit la volatilité.
         """
-        raw = abs(sig.get("raw_score", 10))
-        dynamic_sl = sig.get("dynamic_sl") or SL_PCT
-
-        signal_factor = max(0.4, min(1.0, 0.6 + (raw - 10) * 0.08))
-        # Risque dollar constant : position plus petite quand le SL est plus large
-        vol_factor = max(0.3, min(1.0, SL_PCT / dynamic_sl))
-
         risk_status = self.risk.status()
-        pnl_today = risk_status.get("pnl_today", 0)
-        start_bal = risk_status.get("daily_start_balance") or 1
-        daily_limit = start_bal * MAX_DAILY_DRAWDOWN_PCT
-        if pnl_today < 0 and daily_limit > 0:
-            risk_factor = max(0.4, 1.0 - (abs(pnl_today) / daily_limit) * 0.6)
-        else:
-            risk_factor = 1.0
-
-        factor = round(max(0.3, min(1.0, signal_factor * vol_factor * risk_factor)), 2)
+        factor = size_factor(
+            raw_score              = sig.get("raw_score", 10),
+            dynamic_sl             = sig.get("dynamic_sl"),
+            sl_pct                 = SL_PCT,
+            pnl_today              = risk_status.get("pnl_today", 0),
+            daily_start_balance    = risk_status.get("daily_start_balance"),
+            max_daily_drawdown_pct = MAX_DAILY_DRAWDOWN_PCT,
+        )
         if DEBUG:
-            print(f"  [SIZE] signal={signal_factor:.2f} × vol={vol_factor:.2f} (SL={dynamic_sl*100:.2f}%) × risk={risk_factor:.2f} → {factor:.2f}")
+            dyn_sl = sig.get("dynamic_sl") or SL_PCT
+            print(f"  [SIZE] raw={sig.get('raw_score', 10)} SL={dyn_sl*100:.2f}% "
+                  f"pnl_day={risk_status.get('pnl_today', 0):+.2f} → {factor:.2f}")
         return factor
 
     def _manage_trailing(self, coin, last_price):
@@ -712,17 +724,19 @@ class TradingBot:
         try:
             client = MongoClient(MONGO_URL)
             db = client[MONGO_DB]
-            today_start = datetime.now(timezone.utc).replace(
-                hour=0, minute=0, second=0, microsecond=0
+            # Fenêtre = la veille (jour terminé), bornes en int-ms (cf. helper).
+            day_start_ms, today_start_ms, day_label = daily_report_window(
+                datetime.now(timezone.utc)
             )
             trades = list(db[MONGO_COLLECTION_TRADES].find(
-                {"action": "close", "timestamp": {"$gte": today_start}}
+                {"action": "close",
+                 "timestamp": {"$gte": day_start_ms, "$lt": today_start_ms}}
             ))
             balance = self.trader._get_total_balance()
             if not trades:
                 self.notifier.send(
-                    f"📊 <b>Bilan journalier</b>\n"
-                    f"Aucun trade fermé aujourd'hui\n"
+                    f"📊 <b>Bilan de la veille ({day_label})</b>\n"
+                    f"Aucun trade fermé\n"
                     f"Solde: <code>{balance:.2f} USDC</code>"
                 )
                 return
@@ -740,7 +754,7 @@ class TradingBot:
 
             emoji = "📈" if total_pnl >= 0 else "📉"
             msg = (
-                f"{emoji} <b>Bilan journalier</b>\n"
+                f"{emoji} <b>Bilan de la veille ({day_label})</b>\n"
                 f"Trades: {len(trades)} | ✅ {len(wins)} gagnants / ❌ {len(losses)} perdants\n"
                 f"Win rate: <b>{win_rate:.1f}%</b>\n"
                 f"PnL total: <b>{total_pnl:+.4f} USDC</b>\n"
@@ -799,6 +813,22 @@ class TradingBot:
         print(f"  [COOLDOWN][{coin}] {direction} {old:.0f}s → {new:.0f}s "
               f"({'perte' if pnl < 0 else 'gain'} {pnl:+.4f})")
 
+    def _check_mongo_health(self) -> bool:
+        """Vérifie que MongoDB est joignable au démarrage (3 tentatives)."""
+        if not MONGO_URL:
+            print("[BOT] ❌ MONGO_URL absent de l'environnement.")
+            return False
+        for attempt in range(3):
+            try:
+                client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000)
+                client.admin.command("ping")
+                print("[BOT] ✅ MongoDB joignable.")
+                return True
+            except Exception as e:
+                print(f"[BOT] ⚠️ MongoDB injoignable (tentative {attempt + 1}/3): {e}")
+                time.sleep(5)
+        return False
+
     def _check_kill_switch(self):
         import os
         if os.path.exists(KILL_SWITCH_FILE):
@@ -856,4 +886,6 @@ if __name__ == "__main__":
     import sys
     bot = TradingBot()
     bot.start()
-    sys.exit(1)
+    # Arrêt propre = code 0. Le redémarrage en prod est garanti par
+    # fly.toml ([[restart]] policy = 'always'), pas par un code d'erreur.
+    sys.exit(0)

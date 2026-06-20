@@ -12,6 +12,7 @@ from strategy.indicators import (
     bb_width, bb_percent_b, volume_ratio, ema_slope, adx
 )
 from utils.logger import Logger
+from utils.sizing import dynamic_sl_tp
 
 try:
     from ml.predictor import MLPredictor
@@ -552,27 +553,17 @@ class StrategyEngine:
         # === TP/SL dynamiques bases sur ATR ===
         # Ratio risk/reward TOUJOURS >= 1.5 (on gagne plus qu'on perd)
         atr_val = row["ATR"] if pd.notna(row["ATR"]) else None
-        dynamic_tp = TP_PCT
-        dynamic_sl = SL_PCT
+        # SL = clamp(ATR×1.5, SL/2, SL×2) ; TP = max(SL×2, MIN_TP) — cf. utils.sizing
+        dynamic_sl, dynamic_tp = dynamic_sl_tp(atr_val, row["close"], SL_PCT, TP_PCT, MIN_TP_PCT)
 
         if atr_val and row["close"] > 0:
             atr_pct = atr_val / row["close"]
-
-            # SL = 1.5x ATR (assez de marge pour ne pas se faire sortir par le bruit)
             raw_sl = atr_pct * 1.5
-            dynamic_sl = max(raw_sl, SL_PCT * 0.5)  # plancher = demi SL config
-            dynamic_sl = min(dynamic_sl, SL_PCT * 2)  # plafond = 2x SL config
-
-            # TP = SL * 2.0 (ratio R:R minimum de 2:1)
-            dynamic_tp = dynamic_sl * 2.0
-            dynamic_tp = max(dynamic_tp, MIN_TP_PCT)  # plancher = 0.8%
-
             debug["atr"] = f"{atr_val:.4f} ({atr_pct*100:.4f}%)"
             debug["dynamic_sl"] = f"{dynamic_sl*100:.3f}% (raw ATR*1.5={raw_sl*100:.4f}%)"
             debug["dynamic_tp"] = f"{dynamic_tp*100:.3f}% (R:R={dynamic_tp/dynamic_sl:.1f}:1)"
         else:
             # Fallback statique avec R:R correct
-            dynamic_tp = max(TP_PCT, SL_PCT * 1.5)
             debug["atr"] = "N/A"
             debug["dynamic_tp"] = f"{dynamic_tp*100:.3f}% (static fallback)"
             debug["dynamic_sl"] = f"{dynamic_sl*100:.3f}% (static fallback)"
