@@ -6,6 +6,7 @@ primary_region = 'cdg'
 
 [env]
   DEBUG = 'true'
+  PYTHONUNBUFFERED = '1'
 
 # Pas de http_service — c'est un worker, pas un web service
 

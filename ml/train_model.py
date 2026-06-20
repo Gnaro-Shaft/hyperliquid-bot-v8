@@ -156,12 +156,18 @@ def label_signals(signals: pd.DataFrame, ohlc: pd.DataFrame,
 
 
 def train(coin: str, days: int, lookahead: int, target_pct: float,
-          model_dir: str) -> dict:
-    """Entraîne et sauvegarde le modèle pour un coin."""
+          model_dir: str, holdout_days: int = 0) -> dict:
+    """Entraîne et sauvegarde le modèle pour un coin.
+
+    Si holdout_days > 0 : calcule en plus une AUC de validation temporelle
+    (entraînement sur l'historique ancien, test sur les holdout_days récents)
+    pour détecter le surapprentissage du régime récent. Retournée dans
+    result["holdout_auc"] (None si non calculable).
+    """
     from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.preprocessing import StandardScaler
     from sklearn.model_selection import cross_val_score, StratifiedKFold
-    from sklearn.metrics import classification_report
+    from sklearn.metrics import classification_report, roc_auc_score
     import joblib
 
     print(f"\n{'═' * 55}")
@@ -219,6 +225,34 @@ def train(coin: str, days: int, lookahead: int, target_pct: float,
     print(f"\n[ML] Cross-validation AUC : {cv_scores.mean():.3f} ± {cv_scores.std():.3f}")
     print(f"      Scores par fold      : {' | '.join(f'{s:.3f}' for s in cv_scores)}")
 
+    # ── Validation holdout temporelle (anti-surapprentissage du régime récent) ──
+    holdout_auc = None
+    if holdout_days and holdout_days > 0:
+        ts = df["timestamp"].values
+        cutoff = ts.max() - holdout_days * 86400 * 1000
+        train_mask = ts < cutoff
+        test_mask  = ts >= cutoff
+        n_tr, n_te = int(train_mask.sum()), int(test_mask.sum())
+        if n_tr >= MIN_SAMPLES and n_te >= 30:
+            y_tr, y_te = y[train_mask], y[test_mask]
+            if len(set(y_tr)) > 1 and len(set(y_te)) > 1:
+                sc_h = StandardScaler()
+                X_tr = sc_h.fit_transform(X[train_mask])
+                X_te = sc_h.transform(X[test_mask])
+                m_h = GradientBoostingClassifier(
+                    n_estimators=200, max_depth=3, learning_rate=0.05,
+                    subsample=0.8, random_state=42,
+                )
+                m_h.fit(X_tr, y_tr)
+                holdout_auc = float(roc_auc_score(y_te, m_h.predict_proba(X_te)[:, 1]))
+                print(f"[ML] Holdout AUC ({holdout_days}j récents, "
+                      f"train={n_tr}/test={n_te}) : {holdout_auc:.3f}")
+            else:
+                print(f"[ML] Holdout impossible : une seule classe dans train/test")
+        else:
+            print(f"[ML] Holdout impossible : pas assez d'échantillons "
+                  f"(train={n_tr}, test={n_te})")
+
     # Entraînement final sur tout le dataset
     model.fit(X_scaled, y)
 
@@ -250,6 +284,7 @@ def train(coin: str, days: int, lookahead: int, target_pct: float,
         "label_1_pct": round(label_counts.get(1, 0) / len(df) * 100, 1),
         "cv_auc_mean": round(cv_scores.mean(), 3),
         "cv_auc_std":  round(cv_scores.std(), 3),
+        "holdout_auc": round(holdout_auc, 3) if holdout_auc is not None else None,
     }
 
 
