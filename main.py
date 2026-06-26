@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pymongo import MongoClient
 
 from config import (
-    PAIRS, DEBUG, TP_PCT, SL_PCT, TRAIL_PCT,
+    PAIRS, DEBUG, TP_PCT, SL_PCT, TRAIL_PCT, PAPER_MODE,
     TRAILING_TRIGGER_PCT, TRAILING_STEP_PCT,
     KILL_SWITCH_FILE,
     SIGNAL_CONFIRM_COUNT, LOOP_INTERVAL, TRAILING_CHECK_INTERVAL,
@@ -24,6 +24,7 @@ from config import (
 )
 from strategy.strategy_engine import StrategyEngine
 from trader.ccxt_trader import HyperliquidTrader
+from trader.paper_trader import PaperTrader
 from collector.websocket_collector import WebSocketCollector
 from collector.rest_collector import RestCollector
 from risk.risk_manager import RiskManager
@@ -54,7 +55,7 @@ class TradingBot:
     def __init__(self):
         self.collector = WebSocketCollector()
         self.rest_collector = RestCollector()
-        self.trader = HyperliquidTrader()
+        self.trader = PaperTrader() if PAPER_MODE else HyperliquidTrader()
         self.risk = RiskManager()
         self.notifier = Notifier()
         self._shutdown = False
@@ -158,8 +159,9 @@ class TradingBot:
         self._sync_positions_on_start()
 
         pairs_str = " | ".join(PAIRS)
-        self.notifier.send(f"🚀 <b>Bot démarré</b> — {pairs_str} | Solde: <code>{balance:.2f} USDC</code>")
-        print(f"\n=== Trading Bot v8 LIVE | {pairs_str} | Solde: {balance:.2f} USDC ===\n")
+        mode = "📝 PAPER" if PAPER_MODE else "💸 LIVE"
+        self.notifier.send(f"🚀 <b>Bot démarré [{mode}]</b> — {pairs_str} | Solde: <code>{balance:.2f} USDC</code>")
+        print(f"\n=== Trading Bot v8 [{mode}] | {pairs_str} | Solde: {balance:.2f} USDC ===\n")
 
         signal.signal(signal.SIGINT, self._handle_shutdown)
         signal.signal(signal.SIGTERM, self._handle_shutdown)

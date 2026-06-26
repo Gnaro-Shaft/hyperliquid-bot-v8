@@ -3,6 +3,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# === MODE PAPER TRADING (v8.11) ===
+# Si PAPER_MODE=true (env), le bot reçoit les vrais prix mais N'ENVOIE AUCUN ordre :
+# positions, TP/SL et PnL sont simulés. Défaut = false (= trading réel).
+PAPER_MODE = os.getenv("PAPER_MODE", "false").strip().lower() in ("1", "true", "yes")
+PAPER_START_BALANCE = float(os.getenv("PAPER_START_BALANCE", "1000"))
+
 # === EXCHANGE & PAIRS ===
 PAIRS = ["SOL/USDC:USDC", "BTC/USDC:USDC"]
 
@@ -114,6 +120,10 @@ MONGO_COLLECTION_TRADES_MARKET = "market_trades"
 # Observabilite (v8.10 — consomme par le GCN Dashboard)
 MONGO_COLLECTION_DECISIONS = "decisions"      # journal de decision (ouvert/refuse)
 MONGO_COLLECTION_BOT_STATUS = "bot_status"    # heartbeat etat du bot (doc _id="current")
+
+# Paper trading (v8.11)
+MONGO_COLLECTION_PAPER_TRADES = "paper_trades"  # trades simules
+MONGO_COLLECTION_PAPER_STATE = "paper_state"    # etat paper persiste (doc _id="current")
 DL_SNAPSHOT_INTERVAL = 30       # Secondes entre snapshots orderbook
 DL_REST_INTERVAL = 300          # Secondes entre polls REST (funding/OI)
 
