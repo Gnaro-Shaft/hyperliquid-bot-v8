@@ -18,6 +18,13 @@ import time
 import threading
 from datetime import datetime, timezone
 
+from pymongo import MongoClient
+
+from config import (
+    MONGO_URL, MONGO_DB, MONGO_COLLECTION_TRADES, MONGO_COLLECTION_DECISIONS,
+)
+from utils.observability import aggregate_trades, aggregate_decisions
+
 # ── Paramètres ─────────────────────────────────────────────────
 CHECK_INTERVAL_H   = 6      # Vérifie toutes les 6h si c'est l'heure de backtester
 BACKTEST_INTERVAL_DAYS = 7  # Lance le backtest toutes les 7 jours
@@ -184,12 +191,62 @@ class BacktestScheduler:
             lines.append("✅ Tous les indicateurs dans les limites normales")
             lines.append("")
 
+        # ── Audit des trades RÉELS (v8.10) ──
+        lines.extend(self._real_trades_audit_lines())
+
         next_run = datetime.fromtimestamp(
             time.time() + self.interval_sec, tz=timezone.utc
         ).strftime("%d/%m/%Y")
         lines.append(f"🔄 Prochain backtest : {next_run}")
 
         return "\n".join(lines)
+
+    def _real_trades_audit_lines(self) -> list:
+        """Section audit des trades RÉELS sur la fenêtre (PnL par direction /
+        heure / raison de sortie) + stats du journal de décision."""
+        try:
+            db = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000)[MONGO_DB]
+            since_ms = int((time.time() - self.lookback * 86400) * 1000)
+            trades = list(db[MONGO_COLLECTION_TRADES].find(
+                {"action": "close", "timestamp": {"$gte": since_ms}},
+                {"pnl": 1, "side": 1, "reason": 1, "timestamp": 1},
+            ))
+            decisions = list(db[MONGO_COLLECTION_DECISIONS].find(
+                {"timestamp": {"$gte": since_ms}}, {"action": 1, "reason": 1},
+            ))
+        except Exception as e:
+            return [f"<i>Audit trades réels indisponible : {e}</i>", ""]
+
+        agg = aggregate_trades(trades)
+        dec = aggregate_decisions(decisions)
+
+        lines = [f"<b>📒 Audit trades réels ({self.lookback}j)</b>"]
+        if agg["n"] == 0:
+            lines.append("  Aucun trade clôturé sur la période")
+        else:
+            lines.append(f"  {agg['n']} trades | Win <b>{agg['win_rate']}%</b> | "
+                         f"PnL <b>{agg['pnl']:+.2f}</b>")
+            for side, d in sorted(agg["by_direction"].items()):
+                wr = round(d["wins"] / d["n"] * 100) if d["n"] else 0
+                lines.append(f"  • {side}: {d['n']} ({wr}% win) PnL {d['pnl']:+.2f}")
+            top_reasons = sorted(agg["by_reason"].items(), key=lambda kv: -kv[1]["n"])[:3]
+            if top_reasons:
+                lines.append("  Sorties: " + " | ".join(
+                    f"{r} {v['n']}" for r, v in top_reasons))
+            if agg["by_hour"]:
+                best = max(agg["by_hour"].items(), key=lambda kv: kv[1]["pnl"])
+                worst = min(agg["by_hour"].items(), key=lambda kv: kv[1]["pnl"])
+                lines.append(f"  Heure +: {best[0]}h ({best[1]['pnl']:+.2f}) | "
+                             f"−: {worst[0]}h ({worst[1]['pnl']:+.2f})")
+
+        if dec["n"]:
+            refused_str = ", ".join(
+                f"{k} {v}" for k, v in
+                sorted(dec["refused_by_reason"].items(), key=lambda kv: -kv[1]))
+            lines.append(f"  Décisions: {dec['accepted']} ✅ / {dec['refused']} ⛔"
+                         + (f" ({refused_str})" if refused_str else ""))
+        lines.append("")
+        return lines
 
     def _diagnose(self, coin, wr, pf, rr, dd, sl_pct, tp_pct, n) -> list:
         """

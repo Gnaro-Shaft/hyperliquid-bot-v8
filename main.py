@@ -18,7 +18,7 @@ from config import (
     PULLBACK_PCT, PULLBACK_EXPIRY_SEC,
     AUTOCAL_LOOKBACK_TRADES, SIGNAL_THRESHOLD_DEFAULT,
     SIGNAL_THRESHOLD_MIN, SIGNAL_THRESHOLD_MAX,
-    MONGO_URL, MONGO_DB, MONGO_COLLECTION_TRADES,
+    MONGO_URL, MONGO_DB, MONGO_COLLECTION_TRADES, MONGO_COLLECTION_DECISIONS,
     COOLDOWN_BASE_SEC, COOLDOWN_MIN_SEC, COOLDOWN_MAX_SEC,
     COOLDOWN_LOSS_MULT, COOLDOWN_WIN_MULT,
 )
@@ -32,6 +32,7 @@ from utils.sizing import size_factor
 from utils.reporting import daily_report_window
 from utils.exposure import exposure_check
 from utils.market_guard import market_circuit_breaker
+from utils.observability import build_decision_doc
 from monitor.health import HealthMonitor
 
 try:
@@ -397,15 +398,16 @@ class TradingBot:
             sig["label"], sig["color"], price, sig["debug"]
         )
 
+        side = "buy" if sig["score"] == 2 else "sell"
+
         # Risk manager
         balance = self.trader._get_total_balance()
         can_trade, reason = self.risk.can_trade(current_balance=balance)
         if not can_trade:
             print(f"[BOT][{coin}] Trading bloqué: {reason}")
             self.notifier.risk_alert(reason)
+            self._log_decision(coin, sig, side, "refused", f"risk: {reason}", price)
             return
-
-        side = "buy" if sig["score"] == 2 else "sell"
 
         # ── Circuit breaker marché (v8.9) ──
         tripped, cb_reasons = self._check_market_breaker(sig)
@@ -413,12 +415,14 @@ class TradingBot:
             joined = ", ".join(cb_reasons)
             print(f"[BOT][{coin}] 🚧 Circuit breaker marché — entrée bloquée : {joined}")
             self.notifier.risk_alert(f"Circuit breaker [{coin}] : {joined}")
+            self._log_decision(coin, sig, side, "refused", f"circuit_breaker: {joined}", price)
             return
 
         # ── #2 Filtre corrélation ──
         blocked, corr_boost = self._check_correlation(coin, side)
         if blocked:
             print(f"[BOT][{coin}] ⚡ Bloqué — conflit corrélation avec paire sœur")
+            self._log_decision(coin, sig, side, "refused", "correlation", price)
             return
         if corr_boost > 0 and DEBUG:
             print(f"  [CORR][{coin}] Signal corroboré par paire sœur → size_boost +{corr_boost*100:.0f}%")
@@ -430,6 +434,7 @@ class TradingBot:
         if not allowed:
             print(f"[BOT][{coin}] 🛡️ Exposition — entrée bloquée : {exp_reason}")
             self.notifier.risk_alert(f"Exposition [{coin}] : {exp_reason}")
+            self._log_decision(coin, sig, side, "refused", f"exposure: {exp_reason}", price)
             return
 
         # ── #4 Pullback entry ──
@@ -448,6 +453,7 @@ class TradingBot:
         }
         print(f"[BOT][{coin}] ⏳ En attente pullback @ {target:.4f} "
               f"(actuel={price:.4f}, expiry={PULLBACK_EXPIRY_SEC}s)")
+        self._log_decision(coin, sig, side, "accepted", "ok", price, size_factor)
 
     def _check_pending_entry(self, coin, live_price):
         """Déclenche l'entrée quand le pullback est atteint ou expiré (#4)."""
@@ -550,6 +556,24 @@ class TradingBot:
                     return False, 0.15  # Boost +15% — signal confirmé par paire sœur
 
         return False, 0.0
+
+    def _decisions_col(self):
+        """Collection Mongo du journal de décision (client mis en cache)."""
+        if getattr(self, "_dec_client", None) is None:
+            self._dec_client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000)
+        return self._dec_client[MONGO_DB][MONGO_COLLECTION_DECISIONS]
+
+    def _log_decision(self, coin, sig, side, action, reason, price, size_factor=None):
+        """Journalise une décision d'entrée (acceptée/refusée) en Mongo (v8.10)."""
+        try:
+            doc = build_decision_doc(
+                coin, sig, side, action, reason, price, size_factor,
+                int(time.time() * 1000),
+                datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            self._decisions_col().insert_one(doc)
+        except Exception as e:
+            print(f"[BOT][{coin}] Erreur log decision: {e}")
 
     def _check_market_breaker(self, sig):
         """Circuit breaker marché (v8.9) : bloque l'entrée si conditions extrêmes."""

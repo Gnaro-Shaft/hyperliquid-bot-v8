@@ -110,6 +110,10 @@ MONGO_COLLECTION_ORDERBOOK = "orderbook_snapshots"
 MONGO_COLLECTION_FUNDING = "funding_rates"
 MONGO_COLLECTION_OI = "open_interest"
 MONGO_COLLECTION_TRADES_MARKET = "market_trades"
+
+# Observabilite (v8.10 — consomme par le GCN Dashboard)
+MONGO_COLLECTION_DECISIONS = "decisions"      # journal de decision (ouvert/refuse)
+MONGO_COLLECTION_BOT_STATUS = "bot_status"    # heartbeat etat du bot (doc _id="current")
 DL_SNAPSHOT_INTERVAL = 30       # Secondes entre snapshots orderbook
 DL_REST_INTERVAL = 300          # Secondes entre polls REST (funding/OI)
 

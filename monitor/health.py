@@ -10,17 +10,21 @@ collecte les métriques (I/O) puis l'appelle, et n'alerte que sur transition
 (sain → problème) pour éviter le spam Telegram.
 """
 
+import os
 import time
 import threading
 import traceback
+from datetime import datetime, timezone
 
 from pymongo import MongoClient
 
 from config import (
     MONGO_URL, MONGO_DB, MONGO_COLLECTION_1M, MONGO_COLLECTION_15M,
+    MONGO_COLLECTION_BOT_STATUS, KILL_SWITCH_FILE,
     HEALTH_CHECK_INTERVAL_SEC, HEALTH_MAX_1M_AGE_SEC,
     HEALTH_MAX_15M_AGE_SEC, HEALTH_MAX_CONSEC_ERRORS,
 )
+from utils.observability import build_bot_status
 
 
 def evaluate_health(metrics: dict, thresholds: dict) -> list:
@@ -112,6 +116,22 @@ class HealthMonitor:
         m["consec_errors"] = int(getattr(self.bot, "_err_count", 0) or 0)
         return m
 
+    def _write_bot_status(self, metrics):
+        """Écrit le doc heartbeat `bot_status` (_id='current') pour le dashboard."""
+        try:
+            risk_status = self.bot.risk.status()
+            kill = os.path.exists(KILL_SWITCH_FILE)
+            doc = build_bot_status(
+                metrics, risk_status, self.bot.positions, kill,
+                int(time.time() * 1000),
+                datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            self._db()[MONGO_COLLECTION_BOT_STATUS].replace_one(
+                {"_id": "current"}, doc, upsert=True
+            )
+        except Exception as e:
+            print(f"[Health] Erreur écriture bot_status: {e}")
+
     def _notify(self, msg, error=False):
         if self.notifier is None:
             print(f"[Health] (no notifier) {msg}")
@@ -126,7 +146,9 @@ class HealthMonitor:
         time.sleep(45)  # laisser le bot se stabiliser
         while True:
             try:
-                problems = evaluate_health(self.collect_metrics(), self.thresholds)
+                metrics = self.collect_metrics()
+                self._write_bot_status(metrics)          # heartbeat pour le dashboard
+                problems = evaluate_health(metrics, self.thresholds)
                 if problems and not self._unhealthy:
                     self._unhealthy = True
                     self._notify(
