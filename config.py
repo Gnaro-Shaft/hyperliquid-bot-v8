@@ -124,6 +124,12 @@ MONGO_COLLECTION_BOT_STATUS = "bot_status"    # heartbeat etat du bot (doc _id="
 # Paper trading (v8.11)
 MONGO_COLLECTION_PAPER_TRADES = "paper_trades"  # trades simules
 MONGO_COLLECTION_PAPER_STATE = "paper_state"    # etat paper persiste (doc _id="current")
+
+# === BACKTEST RÉALISTE (v8.6) ===
+# Coûts d'exécution adverses appliqués à l'entrée et à la sortie du backtest,
+# en plus des frais 0.1% A/R. Rend les résultats moins optimistes.
+BT_SLIPPAGE_PCT = 0.0003   # slippage adverse (0.03% par exécution)
+BT_SPREAD_PCT   = 0.0002   # spread moyen (0.02%) → demi-spread payé par leg
 DL_SNAPSHOT_INTERVAL = 30       # Secondes entre snapshots orderbook
 DL_REST_INTERVAL = 300          # Secondes entre polls REST (funding/OI)
 

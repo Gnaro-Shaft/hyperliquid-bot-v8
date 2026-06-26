@@ -32,8 +32,10 @@ from config import (
     SIGNAL_CONFIRM_COUNT, COOLDOWN_BASE_SEC,
     TRAIL_PCT, TRAILING_TRIGGER_PCT, TRAILING_STEP_PCT,
     BREAKEVEN_TRIGGER_PCT, BREAKEVEN_OFFSET_PCT,
+    BT_SLIPPAGE_PCT, BT_SPREAD_PCT,
 )
 from strategy.strategy_engine import StrategyEngine
+from utils.execution import execution_price
 
 
 # ──────────────────────────────────────────────────────────────
@@ -241,7 +243,9 @@ class Backtester:
         self._reverse_streak = 0
 
         side = "buy" if sig["score"] == 2 else "sell"
-        entry = float(candle["close"])
+        # Exécution réaliste : entrée à un prix adverse (slippage + demi-spread)
+        entry = execution_price(float(candle["close"]), side, True,
+                                BT_SLIPPAGE_PCT, BT_SPREAD_PCT)
 
         sl_pct  = sig.get("dynamic_sl") or SL_PCT
         tp_pct  = sig.get("dynamic_tp") or TP_PCT
@@ -369,6 +373,10 @@ class Backtester:
         side = pos["side"]
         entry = pos["entry"]
         size = pos["size"]
+
+        # Exécution réaliste : sortie à un prix adverse (slippage + demi-spread)
+        exit_price = execution_price(exit_price, side, False,
+                                     BT_SLIPPAGE_PCT, BT_SPREAD_PCT)
 
         pnl = (exit_price - entry) * size if side == "buy" else (entry - exit_price) * size
 
