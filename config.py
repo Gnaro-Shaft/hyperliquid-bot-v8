@@ -49,6 +49,24 @@ MAX_CONSECUTIVE_LOSSES = 3
 PAUSE_DURATION_MINUTES = 15
 MAX_DAILY_DRAWDOWN_PCT = 0.05   # Arret si -5% du solde initial du jour
 
+# === LIMITES D'EXPOSITION GLOBALE (v8.9) ===
+MAX_OPEN_POSITIONS       = 2     # Nb max de positions simultanees (toutes paires)
+MAX_POSITIONS_PER_DIR    = 1     # Nb max de positions dans la meme direction (long OU short)
+MAX_TOTAL_EXPOSURE_PCT   = 0.60  # Exposition notionnelle totale max (% du solde)
+
+# === HEALTHCHECK AUTONOME (v8.9) ===
+HEALTH_CHECK_INTERVAL_SEC = 300    # Verification toutes les 5 min
+HEALTH_MAX_1M_AGE_SEC     = 300    # Bougie 1m la plus recente doit dater de < 5 min
+HEALTH_MAX_15M_AGE_SEC    = 2400   # Bougie 15m la plus recente doit dater de < 40 min
+HEALTH_MAX_CONSEC_ERRORS  = 5      # Alerte au-dela de N erreurs consecutives
+
+# === CIRCUIT BREAKER MARCHE (v8.9) ===
+# Bloque les ENTREES pendant des conditions de marche extremes.
+CB_MAX_ATR_PCT          = 0.03     # Volatilite anormale si ATR > 3% du prix
+CB_MAX_ABS_FUNDING      = 0.001    # Funding extreme si |funding| > 0.1%
+CB_MAX_CANDLE_RANGE_PCT = 0.04     # Bougie enorme si range 15m (high-low)/close > 4%
+CB_MAX_SPREAD_PCT       = 0.002    # Spread trop large si > 0.2% (None tant que non branche)
+
 # === COOLDOWN DYNAMIQUE ===
 COOLDOWN_BASE_SEC  = 600        # 10 min de base entre deux trades
 COOLDOWN_MIN_SEC   = 300        # 5 min minimum (après gains consécutifs)

@@ -603,6 +603,10 @@ class StrategyEngine:
                 "VWAP": float(row["VWAP"]) if pd.notna(row["VWAP"]) else None,
                 "ATR": float(atr_val) if atr_val else None,
                 "atr_pct": float(atr_pct) if atr_val and row["close"] > 0 else 0.001,
+                "candle_range_pct": (
+                    float((row["high"] - row["low"]) / row["close"])
+                    if pd.notna(row.get("high")) and pd.notna(row.get("low")) and row["close"] else None
+                ),
                 "vol_ratio": float(vol_r),
                 "EMA9_slope": float(ema9_slp),
                 "funding_rate": float(funding) if funding is not None else None,

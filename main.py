@@ -12,7 +12,9 @@ from config import (
     KILL_SWITCH_FILE,
     SIGNAL_CONFIRM_COUNT, LOOP_INTERVAL, TRAILING_CHECK_INTERVAL,
     MAX_DAILY_DRAWDOWN_PCT, BREAKEVEN_TRIGGER_PCT, BREAKEVEN_OFFSET_PCT,
-    MIN_COLLATERAL, RESERVE_BALANCE_PCT,
+    MIN_COLLATERAL, RESERVE_BALANCE_PCT, POSITION_SIZE_PCT,
+    MAX_OPEN_POSITIONS, MAX_POSITIONS_PER_DIR, MAX_TOTAL_EXPOSURE_PCT,
+    CB_MAX_ATR_PCT, CB_MAX_ABS_FUNDING, CB_MAX_CANDLE_RANGE_PCT, CB_MAX_SPREAD_PCT,
     PULLBACK_PCT, PULLBACK_EXPIRY_SEC,
     AUTOCAL_LOOKBACK_TRADES, SIGNAL_THRESHOLD_DEFAULT,
     SIGNAL_THRESHOLD_MIN, SIGNAL_THRESHOLD_MAX,
@@ -28,6 +30,9 @@ from risk.risk_manager import RiskManager
 from utils.notifier import Notifier
 from utils.sizing import size_factor
 from utils.reporting import daily_report_window
+from utils.exposure import exposure_check
+from utils.market_guard import market_circuit_breaker
+from monitor.health import HealthMonitor
 
 try:
     from ml.auto_trainer import AutoTrainer
@@ -133,6 +138,15 @@ class TradingBot:
                 name="BacktestScheduler"
             ).start()
             print("[BOT] 📊 BacktestScheduler démarré (backtest hebdomadaire auto)")
+
+        # Healthcheck autonome — surveillance + alertes Telegram sur transition
+        self._health_monitor = HealthMonitor(bot=self, notifier=self.notifier)
+        threading.Thread(
+            target=self._health_monitor.run_loop,
+            daemon=True,
+            name="HealthMonitor",
+        ).start()
+        print("[BOT] 🚑 HealthMonitor démarré (surveillance toutes les 5 min)")
 
         # Init risk manager
         balance = self.trader._get_total_balance()
@@ -393,6 +407,14 @@ class TradingBot:
 
         side = "buy" if sig["score"] == 2 else "sell"
 
+        # ── Circuit breaker marché (v8.9) ──
+        tripped, cb_reasons = self._check_market_breaker(sig)
+        if tripped:
+            joined = ", ".join(cb_reasons)
+            print(f"[BOT][{coin}] 🚧 Circuit breaker marché — entrée bloquée : {joined}")
+            self.notifier.risk_alert(f"Circuit breaker [{coin}] : {joined}")
+            return
+
         # ── #2 Filtre corrélation ──
         blocked, corr_boost = self._check_correlation(coin, side)
         if blocked:
@@ -402,6 +424,13 @@ class TradingBot:
             print(f"  [CORR][{coin}] Signal corroboré par paire sœur → size_boost +{corr_boost*100:.0f}%")
 
         size_factor = min(1.0, self._compute_size_factor(sig) + corr_boost)
+
+        # ── Garde-fou exposition globale (v8.9) ──
+        allowed, exp_reason = self._check_exposure(coin, side, size_factor, balance)
+        if not allowed:
+            print(f"[BOT][{coin}] 🛡️ Exposition — entrée bloquée : {exp_reason}")
+            self.notifier.risk_alert(f"Exposition [{coin}] : {exp_reason}")
+            return
 
         # ── #4 Pullback entry ──
         if side == "buy":
@@ -521,6 +550,56 @@ class TradingBot:
                     return False, 0.15  # Boost +15% — signal confirmé par paire sœur
 
         return False, 0.0
+
+    def _check_market_breaker(self, sig):
+        """Circuit breaker marché (v8.9) : bloque l'entrée si conditions extrêmes."""
+        dbg = sig.get("debug", {})
+        metrics = {
+            "atr_pct":          dbg.get("atr_pct"),
+            "funding_rate":     dbg.get("funding_rate"),
+            "candle_range_pct": dbg.get("candle_range_pct"),
+            "spread_pct":       dbg.get("spread_pct"),   # None tant que non branché
+        }
+        thresholds = {
+            "max_atr_pct":          CB_MAX_ATR_PCT,
+            "max_abs_funding":      CB_MAX_ABS_FUNDING,
+            "max_candle_range_pct": CB_MAX_CANDLE_RANGE_PCT,
+            "max_spread_pct":       CB_MAX_SPREAD_PCT,
+        }
+        return market_circuit_breaker(metrics, thresholds)
+
+    def _notional(self, balance, sf):
+        """Notionnel estimé d'une position : usable × POSITION_SIZE_PCT × clamp(factor)."""
+        usable = balance * (1 - RESERVE_BALANCE_PCT)
+        return usable * POSITION_SIZE_PCT * max(0.3, min(1.0, sf))
+
+    def _check_exposure(self, coin, side, cand_size_factor, balance):
+        """Garde-fou exposition globale (v8.9).
+
+        Limite le nb total de positions, le nb par direction et l'exposition
+        notionnelle totale. Compte les autres paires (actives + entrées en
+        attente) ; la paire candidate est exclue (au plus une position par paire).
+        Retourne (autorisé, raison).
+        """
+        open_positions = []
+        for c in COINS:
+            if c == coin:
+                continue
+            pos = self.positions[c]
+            if pos.get("active") and pos.get("side"):
+                notional = float(pos.get("size", 0)) * float(pos.get("entry", 0) or 0)
+                open_positions.append({"side": pos["side"], "notional": notional})
+            else:
+                pending = pos.get("pending_entry")
+                if pending and pending.get("direction"):
+                    notional = self._notional(balance, pending.get("size_factor", 1.0))
+                    open_positions.append({"side": pending["direction"], "notional": notional})
+
+        candidate_notional = self._notional(balance, cand_size_factor)
+        return exposure_check(
+            open_positions, side, candidate_notional, balance,
+            MAX_OPEN_POSITIONS, MAX_POSITIONS_PER_DIR, MAX_TOTAL_EXPOSURE_PCT,
+        )
 
     def _handle_exchange_closure(self, coin, fallback_price):
         """Traite une fermeture détectée sur l'exchange (TP/SL atteint)."""
