@@ -29,14 +29,33 @@ def test_decision_doc_accepted():
     assert d["atr_pct"] == 0.006
     assert "confidence=0.87" in d["ml_gate"]
     assert d["timestamp"] == 1000
+    # Contrat dashboard
+    assert d["status"] == "accepted"
+    assert d["created_at"] == 1000
+    assert d["motif"] is None          # "ok" → pas un motif de refus
 
 
 def test_decision_doc_refused_without_size():
     d = build_decision_doc("SOL", make_sig(), "sell", "refused",
-                           "exposure: max", 150, None, 2000, "x")
+                           "exposure: max positions", 150, None, 2000, "x")
     assert d["action"] == "refused"
-    assert d["reason"] == "exposure: max"
+    assert d["reason"] == "exposure: max positions"
     assert d["size_factor"] is None
+    # Contrat dashboard : status + motif (catégorie extraite avant le ':')
+    assert d["status"] == "refused"
+    assert d["motif"] == "exposure"
+
+
+def test_decision_doc_motif_categories():
+    for reason, expected in [
+        ("circuit_breaker: funding", "circuit_breaker"),
+        ("correlation", "correlation"),
+        ("risk: drawdown", "risk"),
+        ("ok", None),
+        ("inconnu: x", None),
+    ]:
+        d = build_decision_doc("BTC", make_sig(), "buy", "refused", reason, 1, None, 1, "x")
+        assert d["motif"] == expected
 
 
 def test_decision_doc_handles_missing_debug():

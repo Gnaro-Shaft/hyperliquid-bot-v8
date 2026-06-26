@@ -8,20 +8,34 @@ Ces documents sont écrits en MongoDB par le bot et lus par le GCN Dashboard.
 """
 
 
+# Motifs de refus reconnus par le GCN Dashboard (ALLOWED_DECISION_MOTIFS).
+_DASHBOARD_MOTIFS = {"risk", "circuit_breaker", "correlation", "exposure"}
+
+
 def build_decision_doc(coin, sig, side, action, reason, price,
                        size_factor, now_ms, now_str):
     """Construit un enregistrement de décision (ouverture acceptée / refusée).
 
     action : "accepted" | "refused"
-    reason : "ok" ou le motif du refus (gate concerné)
+    reason : "ok" ou le motif du refus (gate concerné, ex "exposure: max positions")
+
+    Le doc porte deux jeux de champs :
+      - action / reason / timestamp : usage interne (audit, aggregate_decisions)
+      - status / motif / created_at : contrat attendu par le GCN Dashboard
+        (status ∈ accepted|refused, motif ∈ risk|circuit_breaker|correlation|exposure)
     """
     dbg = sig.get("debug", {}) or {}
+    motif = (reason or "").split(":")[0].strip()
+    motif = motif if motif in _DASHBOARD_MOTIFS else None
     return {
         "timestamp":    int(now_ms),
+        "created_at":   int(now_ms),    # contrat dashboard (champ de tri)
         "datetime":     now_str,
         "coin":         coin,
         "action":       action,
+        "status":       action,         # contrat dashboard
         "reason":       reason,
+        "motif":        motif,          # contrat dashboard (catégorie du refus)
         "side":         side,
         "score":        sig.get("score"),
         "raw_score":    sig.get("raw_score"),
