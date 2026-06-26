@@ -5,7 +5,8 @@ from datetime import datetime
 from config import (
     MONGO_URL, MONGO_DB, MONGO_COLLECTION_1M, MONGO_COLLECTION_15M, MONGO_COLLECTION_1H,
     MONGO_COLLECTION_FUNDING, MONGO_COLLECTION_OI, MONGO_COLLECTION_ORDERBOOK,
-    LEVELS, SL_PCT, TP_PCT, MIN_TP_PCT, DEBUG, SIGNAL_THRESHOLD_DEFAULT
+    LEVELS, SL_PCT, TP_PCT, MIN_TP_PCT, DEBUG, SIGNAL_THRESHOLD_DEFAULT,
+    REGIME_ADAPTIVE, REGIME_HIGH_VOL_ATR_PCT,
 )
 from strategy.indicators import (
     ema, rsi, macd, bollinger_bands, vwap, atr,
@@ -13,6 +14,7 @@ from strategy.indicators import (
 )
 from utils.logger import Logger
 from utils.sizing import dynamic_sl_tp
+from utils.regime import regime_preset
 
 try:
     from ml.predictor import MLPredictor
@@ -214,26 +216,34 @@ class StrategyEngine:
         is_squeeze = bb_w < 0.004
         is_trending = adx_val >= 25
 
-        # Régime de marché — déterminé avant les gates
-        if adx_val >= 30:
-            regime = "STRONG"       # Tendance confirmée → seuil normal (8)
-            regime_threshold_adj = 0
-        elif adx_val >= 25:
-            regime = "WEAK"         # Tendance faible → seuil +1 (9) — plus sélectif
-            regime_threshold_adj = 1
+        # Régime de marché — déterminé avant les gates (Phase 4 : presets adaptatifs)
+        atr_pct_now = (row["ATR"] / row["close"]) if pd.notna(row.get("ATR")) and row["close"] > 0 else None
+
+        if REGIME_ADAPTIVE:
+            preset = regime_preset(adx_val, bb_w, atr_pct_now,
+                                   high_vol_atr=REGIME_HIGH_VOL_ATR_PCT)
+            regime = preset["regime"]
+            regime_threshold_adj = preset["threshold_adj"]
+            regime_tp_mult = preset["tp_mult"]
+            regime_sl_mult = preset["sl_mult"]
+            regime_size_mult = preset["size_mult"]
+            blocked = preset["blocked"]
         else:
-            regime = "RANGE"        # Chop/range → bloqué
-            regime_threshold_adj = 0
+            # Comportement legacy v8.4 (presets neutres)
+            if adx_val >= 30:
+                regime, regime_threshold_adj = "STRONG", 0
+            elif adx_val >= 25:
+                regime, regime_threshold_adj = "WEAK", 1
+            else:
+                regime, regime_threshold_adj = "RANGE", 0
+            regime_tp_mult = regime_sl_mult = regime_size_mult = 1.0
+            blocked = (adx_val < 25) or is_squeeze
 
         debug["adx"] = f"{adx_val:.1f} ({regime})"
         debug["bb_width_filter"] = f"{bb_w:.4f} ({'OK' if not is_squeeze else 'SQUEEZE — BLOCKED'})"
 
-        if not is_trending:
-            debug["gate"] = f"BLOCKED — ADX={adx_val:.1f} < 25 ({regime})"
-            return self._gate_blocked(debug, row)
-
-        if is_squeeze:
-            debug["gate"] = f"BLOCKED — BB width={bb_w:.4f} < 0.004 (squeeze)"
+        if blocked:
+            debug["gate"] = f"BLOCKED — {regime} (ADX={adx_val:.1f}, BBw={bb_w:.4f})"
             return self._gate_blocked(debug, row)
 
         debug["gate"] = f"PASSED ({regime})"
@@ -555,6 +565,9 @@ class StrategyEngine:
         atr_val = row["ATR"] if pd.notna(row["ATR"]) else None
         # SL = clamp(ATR×1.5, SL/2, SL×2) ; TP = max(SL×2, MIN_TP) — cf. utils.sizing
         dynamic_sl, dynamic_tp = dynamic_sl_tp(atr_val, row["close"], SL_PCT, TP_PCT, MIN_TP_PCT)
+        # Phase 4 : adaptation au régime (TP plus large en tendance forte, etc.)
+        dynamic_sl *= regime_sl_mult
+        dynamic_tp *= regime_tp_mult
 
         if atr_val and row["close"] > 0:
             atr_pct = atr_val / row["close"]
@@ -584,6 +597,7 @@ class StrategyEngine:
             "trend_1h": trend_1h,
             "trend_1m": "bull" if confirms_bull_1m else ("bear" if confirms_bear_1m else "neutral"),
             "regime": regime,
+            "regime_size_mult": regime_size_mult,
             "ml_confidence": float(debug.get("gate_ml", "N/A").split("=")[-1].split(" ")[0])
                              if "confidence=" in debug.get("gate_ml", "") else None,
             "is_squeeze": is_squeeze,

@@ -251,10 +251,11 @@ class Backtester:
         tp_pct  = sig.get("dynamic_tp") or TP_PCT
         atr_pct = sig.get("debug", {}).get("atr_pct", SL_PCT)
 
-        # Taille ATR-based (risque réduit si volatilité élevée)
+        # Taille ATR-based (risque réduit si volatilité élevée) × régime (Phase 4)
         vol_factor = max(0.3, min(1.0, SL_PCT / sl_pct)) if sl_pct > 0 else 1.0
+        regime_mult = sig.get("regime_size_mult", 1.0)
         usable = self.equity * (1 - RESERVE_BALANCE_PCT)
-        size   = (usable * POSITION_SIZE_PCT * vol_factor) / entry
+        size   = (usable * POSITION_SIZE_PCT * vol_factor * regime_mult) / entry
 
         if side == "buy":
             tp_price = round(entry * (1 + tp_pct), 4)

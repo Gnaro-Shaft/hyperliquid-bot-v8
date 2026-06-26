@@ -702,10 +702,13 @@ class TradingBot:
             daily_start_balance    = risk_status.get("daily_start_balance"),
             max_daily_drawdown_pct = MAX_DAILY_DRAWDOWN_PCT,
         )
+        # Phase 4 : taille adaptée au régime de marché
+        factor = round(factor * sig.get("regime_size_mult", 1.0), 2)
         if DEBUG:
             dyn_sl = sig.get("dynamic_sl") or SL_PCT
             print(f"  [SIZE] raw={sig.get('raw_score', 10)} SL={dyn_sl*100:.2f}% "
-                  f"pnl_day={risk_status.get('pnl_today', 0):+.2f} → {factor:.2f}")
+                  f"pnl_day={risk_status.get('pnl_today', 0):+.2f} "
+                  f"regime×{sig.get('regime_size_mult', 1.0)} → {factor:.2f}")
         return factor
 
     def _manage_trailing(self, coin, last_price):

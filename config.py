@@ -125,6 +125,12 @@ MONGO_COLLECTION_BOT_STATUS = "bot_status"    # heartbeat etat du bot (doc _id="
 MONGO_COLLECTION_PAPER_TRADES = "paper_trades"  # trades simules
 MONGO_COLLECTION_PAPER_STATE = "paper_state"    # etat paper persiste (doc _id="current")
 
+# === ADAPTATION PAR RÉGIME (Phase 4 / v8.12) ===
+# Si actif, TP/SL/taille/seuil s'adaptent au régime de marché (STRONG/WEAK/
+# HIGH_VOL/RANGE/SQUEEZE). Désactivable pour comparer (A/B). Défaut true.
+REGIME_ADAPTIVE = os.getenv("REGIME_ADAPTIVE", "true").strip().lower() in ("1", "true", "yes")
+REGIME_HIGH_VOL_ATR_PCT = 0.015   # ATR% au-delà duquel le régime devient HIGH_VOL
+
 # === BACKTEST RÉALISTE (v8.6) ===
 # Coûts d'exécution adverses appliqués à l'entrée et à la sortie du backtest,
 # en plus des frais 0.1% A/R. Rend les résultats moins optimistes.
