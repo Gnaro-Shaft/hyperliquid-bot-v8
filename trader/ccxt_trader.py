@@ -13,6 +13,7 @@ from config import (
 )
 from utils.logger import Logger
 from utils.notifier import Notifier
+from utils.min_order import min_target_size, meets_minimum
 
 
 class HyperliquidTrader:
@@ -25,6 +26,11 @@ class HyperliquidTrader:
         self.logger = Logger(collection="trades")
         self.notifier = Notifier()
         self.pair = None  # Determine dynamiquement
+        # Charger les marchés (précision/limites) — utile pour le sizing minimum
+        try:
+            self.exchange.load_markets()
+        except Exception as e:
+            print(f"[TRADER] load_markets au démarrage échoué (réessai plus tard): {e}")
 
     def select_pair(self):
         """Choisit la premiere paire pour laquelle on a assez de collateral."""
@@ -66,30 +72,60 @@ class HyperliquidTrader:
             print(f"[TRADER] Position size: {amount:.6f} ({self.pair})")
         return round(amount, 6)
 
+    def _safe_amount(self, size, price, min_col):
+        """Arrondit la taille à la précision réelle de l'exchange en garantissant
+        un notionnel >= min_col. Remonte d'un cran de précision si l'arrondi est
+        passé sous le minimum. Fallback round(6) si la précision est indisponible."""
+        try:
+            amt = float(self.exchange.amount_to_precision(self.pair, size))
+            if amt * price < min_col:
+                market = self.exchange.market(self.pair)
+                prec = (market.get("precision") or {}).get("amount")
+                if isinstance(prec, int):
+                    inc = 10 ** (-prec)
+                elif isinstance(prec, (int, float)) and prec and prec > 0:
+                    inc = prec
+                else:
+                    inc = 1e-6
+                amt = float(self.exchange.amount_to_precision(self.pair, amt + inc))
+            return amt
+        except Exception as e:
+            print(f"[TRADER] _safe_amount fallback round(6): {e}")
+            return round(size, 6)
+
     def place_order_with_tp_sl(self, side, price, tp_pct=None, sl_pct=None, size_factor=1.0):
         """Ouvre une position + TP/SL. Retourne dict avec les infos ou None."""
         if not self.pair:
             print("[TRADER] Aucune paire selectionnee")
             return None
 
-        size = round(self.get_position_size(price) * max(0.3, min(1.0, size_factor)), 6)
+        size = self.get_position_size(price) * max(0.3, min(1.0, size_factor))
         if size <= 0:
             print("[TRADER] Pas assez de solde pour trader")
             return None
 
-        # Vérifier la valeur minimale de l'ordre (Hyperliquid exige $10 minimum)
+        # ── Gestion robuste du minimum d'ordre (Hyperliquid : ~$10 notionnel) ──
+        # On vise un notionnel avec MARGE (anti-arrondi de précision) puis on
+        # arrondit à la précision de l'exchange. Si on ne peut pas atteindre le
+        # minimum, on IGNORE proprement le trade (pas d'ordre voué au rejet).
         min_col = MIN_COLLATERAL.get(self.pair, 10)
-        order_value = size * price
-        if order_value < min_col:
-            # Essayer de remonter au minimum exact si le solde le permet
-            min_size = round((min_col * 1.02) / price, 6)  # +2% de marge sur le minimum
-            base_size = self.get_position_size(price)       # taille sans size_factor
-            if min_size <= base_size:
-                size = min_size
-                print(f"[TRADER] Taille ajustée au minimum exchange: {size * price:.2f} USDC (factor={size_factor:.2f} → forcé)")
+        base_size = self.get_position_size(price)            # taille pleine (sans factor)
+        target = min_target_size(min_col, price)            # +20% de marge sur le minimum
+
+        if size < target:
+            if base_size >= target:
+                size = target
+                print(f"[TRADER] Taille remontée au minimum (+marge): {size * price:.2f} USDC")
             else:
-                print(f"[TRADER] Solde insuffisant même au minimum: {base_size * price:.2f} USDC < {min_col} USDC")
+                print(f"[TRADER] Solde insuffisant pour le minimum "
+                      f"({base_size * price:.2f} USDC < {min_col} USDC) — trade ignoré")
                 return None
+
+        # Arrondi à la précision réelle de l'exchange (remonte d'un cran si besoin)
+        size = self._safe_amount(size, price, min_col)
+        if not size or not meets_minimum(size, price, min_col):
+            print(f"[TRADER] Taille finale sous le minimum après arrondi — trade ignoré")
+            return None
 
         tp_pct = tp_pct or TP_PCT
         sl_pct = sl_pct or SL_PCT
