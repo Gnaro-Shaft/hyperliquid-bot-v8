@@ -57,16 +57,17 @@ def build_bot_status(metrics, risk_status, positions, kill_switch, now_ms, now_s
     positions : dict {coin: position}
     kill_switch : bool
     """
-    open_positions = []
+    positions_detail = []
     for coin, p in (positions or {}).items():
         if p.get("active"):
-            open_positions.append({
+            positions_detail.append({
                 "coin":  coin,
                 "side":  p.get("side"),
                 "entry": p.get("entry"),
                 "size":  p.get("size"),
             })
 
+    pnl_today = risk_status.get("pnl_today")
     return {
         "_id":                "current",
         "timestamp":          int(now_ms),
@@ -77,12 +78,16 @@ def build_bot_status(metrics, risk_status, positions, kill_switch, now_ms, now_s
         "last_1m_age_s":      metrics.get("last_1m_age_s"),
         "last_15m_age_s":     metrics.get("last_15m_age_s"),
         "balance":            metrics.get("balance"),
-        "pnl_today":          risk_status.get("pnl_today"),
+        "pnl_today":          pnl_today,
+        "daily_pnl":          pnl_today,          # alias contrat widget BotStatus
         "consecutive_losses": risk_status.get("consecutive_losses"),
         "paused":             risk_status.get("paused"),
         "kill_switch":        kill_switch,
-        "open_positions":     open_positions,
-        "n_open_positions":   len(open_positions),
+        # Le widget lit open_positions comme un NOMBRE → on expose le COMPTE ici
+        # (évite Number([{…}])=NaN quand une position est ouverte). Détail → `positions`.
+        "open_positions":     len(positions_detail),
+        "n_open_positions":   len(positions_detail),
+        "positions":          positions_detail,
     }
 
 

@@ -78,15 +78,19 @@ def test_bot_status_summarizes_open_positions():
     assert s["running"] is True
     assert s["balance"] == 82.5
     assert s["pnl_today"] == -0.06
+    assert s["daily_pnl"] == -0.06              # alias contrat widget
     assert s["kill_switch"] is False
+    # open_positions = COMPTE (number) — plus de NaN côté widget
+    assert s["open_positions"] == 1
     assert s["n_open_positions"] == 1
-    assert s["open_positions"][0]["coin"] == "BTC"
+    assert s["positions"][0]["coin"] == "BTC"   # détail sous `positions`
 
 
 def test_bot_status_no_positions():
     s = build_bot_status({}, {}, {}, True, 1, "x")
     assert s["n_open_positions"] == 0
-    assert s["open_positions"] == []
+    assert s["open_positions"] == 0             # compte, pas un tableau
+    assert s["positions"] == []
     assert s["kill_switch"] is True
 
 
