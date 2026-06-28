@@ -162,5 +162,16 @@ HYPERLIQUID_API_SECRET = os.getenv("HYPERLIQUID_API_SECRET", "")
 # === DEBUG ===
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 
+# === CARRY DELTA-NEUTRE (Hyperliquid) — cf. carry/CARRY_DESIGN.md ===
+CARRY_COIN              = "HYPE"   # coin avec perp+spot liquides sur HL (l'ancre)
+CARRY_NOTIONAL_USDC     = 100      # notional cible/simulé PAR JAMBE
+CARRY_LEVERAGE          = 2.0      # levier du short perp (bas = sûr vs liquidation)
+CARRY_MIN_FUNDING_ANNUAL= 0.02     # sortir si le funding annualisé glissant < 2%
+CARRY_REBALANCE_DELTA_PCT = 0.05   # rebalance si |delta|/notional > 5%
+CARRY_FUNDING_LOOKBACK_H = 24 * 7  # fenêtre glissante (h) pour la décision de sortie
+CARRY_LIVE              = os.getenv("CARRY_LIVE", "false").lower() == "true"  # Phase 3 : ordres réels
+MONGO_COLLECTION_CARRY_STATE = "carry_state"   # doc _id="current"
+MONGO_COLLECTION_CARRY_LOG   = "carry_log"     # historique des observations
+
 # === KILL SWITCH ===
 KILL_SWITCH_FILE = "KILL"  # Creer ce fichier pour arreter le bot
