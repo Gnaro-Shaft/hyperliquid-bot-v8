@@ -66,10 +66,12 @@ HEALTH_MAX_1M_AGE_SEC     = 300    # Bougie 1m la plus recente doit dater de < 5
 HEALTH_MAX_15M_AGE_SEC    = 2400   # Bougie 15m la plus recente doit dater de < 40 min
 HEALTH_MAX_CONSEC_ERRORS  = 5      # Alerte au-dela de N erreurs consecutives
 
-# === CIRCUIT BREAKER MARCHE (v8.9) ===
+# === CIRCUIT BREAKER MARCHE (v8.9, recalibre Axe A le 28/06/2026) ===
 # Bloque les ENTREES pendant des conditions de marche extremes.
-CB_MAX_ATR_PCT          = 0.03     # Volatilite anormale si ATR > 3% du prix
-CB_MAX_ABS_FUNDING      = 0.001    # Funding extreme si |funding| > 0.1%
+# Seuils recales sur les queues reelles (ATR median 0.12% / max 1.6% ; funding
+# max 0.01%) : avant, les seuils n'etaient JAMAIS atteints (circuit breaker mort).
+CB_MAX_ATR_PCT          = 0.02     # Volatilite anormale si ATR > 2% (~1.25x le max observe)
+CB_MAX_ABS_FUNDING      = 0.0002   # Funding extreme si |funding| > 0.02% (~2x le max observe)
 CB_MAX_CANDLE_RANGE_PCT = 0.04     # Bougie enorme si range 15m (high-low)/close > 4%
 CB_MAX_SPREAD_PCT       = 0.002    # Spread trop large si > 0.2% (None tant que non branche)
 
@@ -129,7 +131,7 @@ MONGO_COLLECTION_PAPER_STATE = "paper_state"    # etat paper persiste (doc _id="
 # Si actif, TP/SL/taille/seuil s'adaptent au régime de marché (STRONG/WEAK/
 # HIGH_VOL/RANGE/SQUEEZE). Désactivable pour comparer (A/B). Défaut true.
 REGIME_ADAPTIVE = os.getenv("REGIME_ADAPTIVE", "true").strip().lower() in ("1", "true", "yes")
-REGIME_HIGH_VOL_ATR_PCT = 0.015   # ATR% au-delà duquel le régime devient HIGH_VOL
+REGIME_HIGH_VOL_ATR_PCT = 0.010   # ATR% au-delà → régime HIGH_VOL (abaissé 0.015→0.010 le 28/06, sinon dormant)
 
 # === BACKTEST RÉALISTE (v8.6) ===
 # Coûts d'exécution adverses appliqués à l'entrée et à la sortie du backtest,
