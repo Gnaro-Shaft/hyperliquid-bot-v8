@@ -69,6 +69,24 @@ def net_carry_estimate(gross_annual: float, roundtrip_cost: float,
     return gross_annual - cost_annualized
 
 
+def legs_from_notional(notional: float, spot_px: float, perp_px: float):
+    """Quantités des 2 jambes pour un notional cible : (spot_qty long, perp_qty short)."""
+    return notional / spot_px, notional / perp_px
+
+
+def price_pnl(spot_qty: float, spot_entry: float, spot_now: float,
+              perp_qty: float, perp_entry: float, perp_now: float) -> float:
+    """P&L prix des 2 jambes (long spot + short perp). ~0 si delta-neutre (s'annulent)."""
+    spot = spot_qty * (spot_now - spot_entry)          # long
+    perp = perp_qty * (perp_entry - perp_now)          # short
+    return spot + perp
+
+
+def trade_fees(notional: float, fee_rate: float, n_fills: int = 2) -> float:
+    """Frais pour n_fills exécutions (ouverture = 2 jambes ; A/R = 4)."""
+    return notional * fee_rate * n_fills
+
+
 def capital_required(notional: float, leverage: float) -> float:
     """Capital total ≈ jambe spot (notional) + marge perp (notional/levier)."""
     if leverage <= 0:

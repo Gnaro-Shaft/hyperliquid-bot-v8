@@ -169,7 +169,10 @@ CARRY_LEVERAGE          = 2.0      # levier du short perp (bas = sûr vs liquida
 CARRY_MIN_FUNDING_ANNUAL= 0.02     # sortir si le funding annualisé glissant < 2%
 CARRY_REBALANCE_DELTA_PCT = 0.05   # rebalance si |delta|/notional > 5%
 CARRY_FUNDING_LOOKBACK_H = 24 * 7  # fenêtre glissante (h) pour la décision de sortie
+CARRY_FEE_RATE          = 0.00035  # frais HL par exécution (~taker) — pour le paper
 CARRY_LIVE              = os.getenv("CARRY_LIVE", "false").lower() == "true"  # Phase 3 : ordres réels
+MONGO_COLLECTION_CARRY_PAPER_STATE = "carry_paper_state"  # doc _id="current"
+MONGO_COLLECTION_CARRY_PAPER_TRADES = "carry_paper_trades"
 MONGO_COLLECTION_CARRY_STATE = "carry_state"   # doc _id="current"
 MONGO_COLLECTION_CARRY_LOG   = "carry_log"     # historique des observations
 

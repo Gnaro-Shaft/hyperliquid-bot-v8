@@ -7,6 +7,7 @@ from utils.carry_sim import (
     annualized_funding, funding_accrued, position_delta, needs_rebalance,
     should_exit_funding, margin_ratio, liquidation_buffer_pct,
     net_carry_estimate, capital_required, return_on_capital,
+    legs_from_notional, price_pnl, trade_fees,
 )
 
 
@@ -61,6 +62,28 @@ def test_net_carry_estimate():
     assert abs(net - (0.08 - 0.006 * 365 / 90)) < 1e-9
     # tenu plus longtemps = coût mieux amorti = net plus haut
     assert net_carry_estimate(0.08, 0.006, 180) > net
+
+
+def test_legs_from_notional():
+    sq, pq = legs_from_notional(1000, 50, 50)
+    assert sq == 20 and pq == 20            # 1000/50 chaque jambe
+    sq, pq = legs_from_notional(1000, 50, 40)
+    assert pq == 25                          # perp moins cher → plus de quantité
+
+
+def test_price_pnl_neutre():
+    # delta-neutre : prix monte de 50→55 des deux côtés → P&L prix ~0
+    assert abs(price_pnl(20, 50, 55, 20, 50, 55)) < 1e-9
+    # long spot gagne si seul le spot monte
+    assert price_pnl(20, 50, 55, 20, 50, 50) == 100
+    # short perp gagne si seul le perp baisse
+    assert price_pnl(20, 50, 50, 20, 50, 45) == 100
+
+
+def test_trade_fees():
+    # ouverture 2 jambes, notional 1000, 0,035% → 0,70
+    assert abs(trade_fees(1000, 0.00035, 2) - 0.70) < 1e-9
+    assert trade_fees(1000, 0.00035, 4) == 2 * trade_fees(1000, 0.00035, 2)  # A/R = 2× ouverture
 
 
 def test_capital_et_rendement():
