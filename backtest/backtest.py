@@ -36,6 +36,9 @@ from config import (
 )
 from strategy.strategy_engine import StrategyEngine
 from utils.execution import execution_price
+from utils.min_order import min_target_size
+
+MIN_ORDER_USDC = 10   # minimum notionnel Hyperliquid (modélisé dans le backtest)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -147,6 +150,7 @@ class Backtester:
 
         self.position = None
         self.trades = []
+        self.skipped_min = 0   # trades ignorés car sous le minimum d'ordre (solde insuffisant)
         self.equity_curve = []
 
         self._signal_streak = 0
@@ -256,6 +260,16 @@ class Backtester:
         regime_mult = sig.get("regime_size_mult", 1.0)
         usable = self.equity * (1 - RESERVE_BALANCE_PCT)
         size   = (usable * POSITION_SIZE_PCT * vol_factor * regime_mult) / entry
+
+        # Minimum d'ordre (comme le trader live) : remonte au min si possible, sinon skip.
+        min_target = min_target_size(MIN_ORDER_USDC, entry)        # +20% de marge
+        if size < min_target:
+            full = (usable * POSITION_SIZE_PCT) / entry            # taille pleine (sans factors)
+            if full >= min_target:
+                size = min_target                                  # remonté au minimum
+            else:
+                self.skipped_min += 1                              # solde insuffisant → trade ignoré
+                return
 
         if side == "buy":
             tp_price = round(entry * (1 + tp_pct), 4)
