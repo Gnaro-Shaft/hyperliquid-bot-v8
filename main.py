@@ -15,6 +15,7 @@ from config import (
     MIN_COLLATERAL, RESERVE_BALANCE_PCT, POSITION_SIZE_PCT,
     MAX_OPEN_POSITIONS, MAX_POSITIONS_PER_DIR, MAX_TOTAL_EXPOSURE_PCT,
     CB_MAX_ATR_PCT, CB_MAX_ABS_FUNDING, CB_MAX_CANDLE_RANGE_PCT, CB_MAX_SPREAD_PCT,
+    CB_MIN_OB_DEPTH_RATIO,
     PULLBACK_PCT, PULLBACK_EXPIRY_SEC,
     AUTOCAL_LOOKBACK_TRADES, SIGNAL_THRESHOLD_DEFAULT,
     SIGNAL_THRESHOLD_MIN, SIGNAL_THRESHOLD_MAX,
@@ -584,13 +585,15 @@ class TradingBot:
             "atr_pct":          dbg.get("atr_pct"),
             "funding_rate":     dbg.get("funding_rate"),
             "candle_range_pct": dbg.get("candle_range_pct"),
-            "spread_pct":       dbg.get("spread_pct"),   # None tant que non branché
+            "spread_pct":       dbg.get("spread_pct"),
+            "ob_depth_ratio":   dbg.get("ob_depth_ratio"),
         }
         thresholds = {
             "max_atr_pct":          CB_MAX_ATR_PCT,
             "max_abs_funding":      CB_MAX_ABS_FUNDING,
             "max_candle_range_pct": CB_MAX_CANDLE_RANGE_PCT,
             "max_spread_pct":       CB_MAX_SPREAD_PCT,
+            "min_ob_depth_ratio":   CB_MIN_OB_DEPTH_RATIO,
         }
         return market_circuit_breaker(metrics, thresholds)
 

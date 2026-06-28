@@ -59,7 +59,7 @@ LOOKAHEAD_CANDLES   = 4      # Fenêtre de validation (×15m)
 TARGET_MOVE_PCT     = 0.004  # Mouvement cible pour le labelling
 
 # ─── Garde-fous de promotion (P0 + P1) ───────────────────────────────
-MIN_AUC             = 0.58   # Plancher AUC CV (relevé depuis 0.53)
+MIN_AUC             = 0.60   # Plancher AUC CV (0.53 → 0.58 → 0.60, Axe B). Modèles ~0.73-0.75.
 MIN_HOLDOUT_AUC     = 0.54   # Plancher AUC holdout temporel (un peu plus bas, plus bruité)
 HOLDOUT_DAYS        = 10     # Fenêtre de validation temporelle (jours récents)
 AUC_REGRESSION_TOL  = 0.01   # Tolérance anti-régression vs modèle déployé

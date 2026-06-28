@@ -73,7 +73,8 @@ HEALTH_MAX_CONSEC_ERRORS  = 5      # Alerte au-dela de N erreurs consecutives
 CB_MAX_ATR_PCT          = 0.02     # Volatilite anormale si ATR > 2% (~1.25x le max observe)
 CB_MAX_ABS_FUNDING      = 0.0002   # Funding extreme si |funding| > 0.02% (~2x le max observe)
 CB_MAX_CANDLE_RANGE_PCT = 0.04     # Bougie enorme si range 15m (high-low)/close > 4%
-CB_MAX_SPREAD_PCT       = 0.002    # Spread trop large si > 0.2% (None tant que non branche)
+CB_MAX_SPREAD_PCT       = 0.0005   # Spread trop large > 0.05% (branche Axe B ; median ~0.0015%)
+CB_MIN_OB_DEPTH_RATIO   = 0.25     # Liquidite : bloque si depth courant < 25% de la moyenne recente
 
 # === COOLDOWN DYNAMIQUE ===
 COOLDOWN_BASE_SEC  = 600        # 10 min de base entre deux trades

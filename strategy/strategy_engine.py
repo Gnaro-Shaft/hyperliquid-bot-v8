@@ -92,6 +92,8 @@ class StrategyEngine:
             "oi_trend_30m": None,
             "ob_imbalance": None,
             "ob_imbalance_avg": None,
+            "spread_pct": None,
+            "ob_depth_ratio": None,
         }
 
         # --- Funding rate (6 derniers polls ≈ 30 min) ---
@@ -133,6 +135,15 @@ class StrategyEngine:
                 if len(docs) >= 3:
                     values = [float(d.get("imbalance", 0)) for d in docs]
                     ctx["ob_imbalance_avg"] = round(sum(values) / len(values), 4)
+                # Spread (liquidité) — dernier snapshot
+                sp = docs[0].get("spread_pct")
+                if sp is not None:
+                    ctx["spread_pct"] = float(sp)
+                # Ratio de profondeur : depth courant / moyenne récente (coin-agnostique)
+                depths = [(d.get("bid_depth_5") or 0) + (d.get("ask_depth_5") or 0) for d in docs]
+                depths = [d for d in depths if d > 0]
+                if len(depths) >= 3 and (avg := sum(depths) / len(depths)) > 0:
+                    ctx["ob_depth_ratio"] = round(depths[0] / avg, 3)
         except Exception:
             pass
 
@@ -626,6 +637,8 @@ class StrategyEngine:
                 "funding_rate": float(funding) if funding is not None else None,
                 "oi_change_pct": float(oi_chg) if oi_chg is not None else None,
                 "ob_imbalance": float(imbalance) if imbalance is not None else None,
+                "spread_pct": mkt.get("spread_pct"),         # circuit breaker (Axe B)
+                "ob_depth_ratio": mkt.get("ob_depth_ratio"), # liquidité (Axe B)
             }
         }
 

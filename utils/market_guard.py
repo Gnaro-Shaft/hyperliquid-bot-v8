@@ -2,12 +2,12 @@
 Circuit breaker marché (v8.9) — fonction pure et testable.
 
 Bloque les ENTRÉES pendant des conditions de marché extrêmes : volatilité
-anormale, funding extrême, bougie énorme, spread trop large. Chaque métrique
-absente (None) est simplement ignorée.
+anormale, funding extrême, bougie énorme, spread trop large, liquidité orderbook
+effondrée. Chaque métrique absente (None) est simplement ignorée.
 
-NB : `spread_pct` et la liquidité orderbook ne sont pas encore alimentés par la
-stratégie (snapshot orderbook à brancher) — prévus en suivi. Les seuils existent
-déjà ici pour qu'il suffise de fournir la métrique le jour venu.
+spread_pct et ob_depth_ratio sont alimentés par la stratégie depuis les snapshots
+orderbook (branchés en Axe B, 28/06/2026). ob_depth_ratio = depth courant / moyenne
+récente → mesure coin-agnostique de la perte de liquidité.
 """
 
 
@@ -34,5 +34,10 @@ def market_circuit_breaker(metrics: dict, thresholds: dict):
     spread = metrics.get("spread_pct")
     if spread is not None and spread > thresholds["max_spread_pct"]:
         reasons.append(f"spread trop large ({spread*100:.3f}%)")
+
+    depth_ratio = metrics.get("ob_depth_ratio")
+    min_ratio = thresholds.get("min_ob_depth_ratio")
+    if depth_ratio is not None and min_ratio is not None and depth_ratio < min_ratio:
+        reasons.append(f"liquidité orderbook effondrée (depth {depth_ratio:.2f}× la moyenne)")
 
     return (len(reasons) > 0, reasons)

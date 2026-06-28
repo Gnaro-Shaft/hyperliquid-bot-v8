@@ -2,12 +2,13 @@
 from utils.market_guard import market_circuit_breaker
 
 THR = {"max_atr_pct": 0.03, "max_abs_funding": 0.001,
-       "max_candle_range_pct": 0.04, "max_spread_pct": 0.002}
+       "max_candle_range_pct": 0.04, "max_spread_pct": 0.0005,
+       "min_ob_depth_ratio": 0.25}
 
 
 def normal():
     return {"atr_pct": 0.006, "funding_rate": 0.0001,
-            "candle_range_pct": 0.01, "spread_pct": 0.0005}
+            "candle_range_pct": 0.01, "spread_pct": 0.0002, "ob_depth_ratio": 1.0}
 
 
 def test_normal_market_not_tripped():
@@ -43,6 +44,23 @@ def test_wide_spread_trips():
     tripped, reasons = market_circuit_breaker(m, THR)
     assert tripped is True
     assert any("spread" in r for r in reasons)
+
+
+def test_low_liquidity_trips():
+    m = normal(); m["ob_depth_ratio"] = 0.10        # depth à 10% de la moyenne
+    tripped, reasons = market_circuit_breaker(m, THR)
+    assert tripped is True
+    assert any("liquidité" in r for r in reasons)
+
+
+def test_normal_liquidity_ok():
+    m = normal(); m["ob_depth_ratio"] = 0.8         # 80% → au-dessus du seuil 0.25
+    assert market_circuit_breaker(m, THR)[0] is False
+
+
+def test_none_depth_ratio_ignored():
+    m = normal(); m["ob_depth_ratio"] = None
+    assert market_circuit_breaker(m, THR)[0] is False
 
 
 def test_none_metrics_ignored():
