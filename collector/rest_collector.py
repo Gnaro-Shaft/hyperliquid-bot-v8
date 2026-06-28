@@ -9,12 +9,13 @@ from datetime import datetime, timezone
 from pymongo import MongoClient, ASCENDING
 
 from config import (
-    PAIRS, MONGO_URL, MONGO_DB,
+    COLLECT_PAIRS, MONGO_URL, MONGO_DB,
     MONGO_COLLECTION_FUNDING, MONGO_COLLECTION_OI,
     DL_REST_INTERVAL,
 )
 
-COINS = [pair.split("/")[0] for pair in PAIRS]
+# Collecte = toutes les paires observées (PAIRS tradées + paires en observation type ETH)
+COINS = [pair.split("/")[0] for pair in COLLECT_PAIRS]
 API_URL = "https://api.hyperliquid.xyz/info"
 
 

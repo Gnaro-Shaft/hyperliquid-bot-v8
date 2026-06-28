@@ -10,11 +10,19 @@ PAPER_MODE = os.getenv("PAPER_MODE", "false").strip().lower() in ("1", "true", "
 PAPER_START_BALANCE = float(os.getenv("PAPER_START_BALANCE", "1000"))
 
 # === EXCHANGE & PAIRS ===
+# PAIRS = paires TRADÉES (stratégie, trader, ML). ETH n'y est PAS : on l'ajoute
+# d'abord en collecte seule (ci-dessous) pour accumuler ~3 mois de données, puis
+# entraîner/valider son modèle avant de le promouvoir ici. Cf. roadmap Axe D.
 PAIRS = ["SOL/USDC:USDC", "BTC/USDC:USDC"]
+
+# COLLECT_PAIRS = paires COLLECTÉES (collectors uniquement) = PAIRS + paires en
+# observation (ETH). Permet d'accumuler les données sans aucun risque de trading.
+COLLECT_PAIRS = PAIRS + ["ETH/USDC:USDC"]
 
 MIN_COLLATERAL = {
     "SOL/USDC:USDC": 10,
     "BTC/USDC:USDC": 10,
+    "ETH/USDC:USDC": 10,
 }
 
 # === MONEY MANAGEMENT ===

@@ -10,19 +10,21 @@ import websockets
 from pymongo import MongoClient, ASCENDING
 
 from config import (
-    PAIRS, MONGO_URL, MONGO_DB,
+    COLLECT_PAIRS, MONGO_URL, MONGO_DB,
     MONGO_COLLECTION_1M, MONGO_COLLECTION_15M, MONGO_COLLECTION_1H,
     MONGO_COLLECTION_ORDERBOOK, MONGO_COLLECTION_TRADES_MARKET,
     DATA_DIR, DEBUG, DL_SNAPSHOT_INTERVAL,
 )
 
-COINS = [pair.split("/")[0] for pair in PAIRS]
+# Collecte = toutes les paires observées (PAIRS tradées + paires en observation type ETH)
+COINS = [pair.split("/")[0] for pair in COLLECT_PAIRS]
 PING_INTERVAL = 30
 WS_URL = "wss://api.hyperliquid.xyz/ws"
 
 # Seuil "gros trade" en unites du coin
 LARGE_TRADE_THRESHOLD = {
     "BTC": 0.5,
+    "ETH": 10,
     "SOL": 100,
     "ADA": 50000,
 }
