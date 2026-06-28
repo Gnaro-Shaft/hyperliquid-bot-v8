@@ -1,0 +1,41 @@
+# Paper trading — environnement 100% isolé (MongoDB local dédié, AUCUN ordre réel).
+# À lancer sur le serveur (homeserv01) :
+#   cp .env.paper.example .env.paper      # (remplir Telegram si voulu — optionnel)
+#   docker compose -f docker-compose.paper.yml up -d --build
+#
+# Le bot tourne en PAPER_MODE : il collecte les vrais prix Hyperliquid (publics)
+# dans sa PROPRE base Mongo et simule positions/TP/SL/PnL. Zéro impact sur la prod.
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: hl-paper-mongo
+    restart: unless-stopped
+    volumes:
+      - paper_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Décommenter pour inspecter la base depuis l'hôte (Compass, etc.) :
+    # ports:
+    #   - "27018:27017"
+
+  bot-paper:
+    build: .                       # réutilise le Dockerfile existant (même image que la prod)
+    container_name: hl-bot-paper
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    env_file:
+      - .env.paper                 # secrets optionnels (Telegram) — cf. .env.paper.example
+    environment:
+      - PAPER_MODE=true            # ← mode simulation : aucun ordre réel
+      - PAPER_START_BALANCE=1000   # solde simulé de départ (USDC)
+      - MONGO_URL=mongodb://mongo:27017   # base Mongo locale et isolée
+      - PYTHONUNBUFFERED=1
+
+volumes:
+  paper_mongo_data:                # persiste la base paper entre les redémarrages

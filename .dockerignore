@@ -1,5 +1,6 @@
 # flyctl launch added from .gitignore
 **/.env
+**/.env.paper
 **/__pycache__
 **/*.pyc
 **/data
