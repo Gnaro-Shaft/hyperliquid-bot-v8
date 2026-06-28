@@ -9,13 +9,20 @@ Précurseur du v9.0 (régime ML / HMM) : ici les règles sont explicites.
 """
 
 # Multiplicateurs par régime appliqués aux TP/SL/taille + ajustement seuil ±2.
+#
+# size_mult NEUTRALISÉ (1.0) le 28/06/2026 — l'analyse Axe A a montré que le
+# down-sizing du régime WEAK était contre-productif : WEAK a un meilleur win rate
+# ET un meilleur PnL/trade que STRONG (qui concentre les pertes). On garde la
+# détection de régime + threshold_adj (WEAK plus sélectif = sain) et les TP/SL
+# mults, mais on ne biaise plus la TAILLE tant que ce n'est pas re-validé avec le
+# filtre ML actif. (Re-tuner via ml/analyze_ml_filter / backtest segmenté par régime.)
 REGIME_PRESETS = {
-    # Tendance forte → laisser courir : TP plus large, pleine taille
+    # Tendance forte → laisser courir : TP plus large
     "STRONG":   {"tp_mult": 1.25, "sl_mult": 1.00, "size_mult": 1.0, "threshold_adj": 0, "blocked": False},
-    # Tendance faible → plus sélectif, plus petit, SL plus serré
-    "WEAK":     {"tp_mult": 1.00, "sl_mult": 0.90, "size_mult": 0.7, "threshold_adj": 1, "blocked": False},
-    # Forte volatilité → taille réduite, SL plus large (éviter les stops sur bruit)
-    "HIGH_VOL": {"tp_mult": 1.10, "sl_mult": 1.20, "size_mult": 0.6, "threshold_adj": 1, "blocked": False},
+    # Tendance faible → plus sélectif (seuil +1), SL plus serré
+    "WEAK":     {"tp_mult": 1.00, "sl_mult": 0.90, "size_mult": 1.0, "threshold_adj": 1, "blocked": False},
+    # Forte volatilité → SL plus large (éviter les stops sur bruit)
+    "HIGH_VOL": {"tp_mult": 1.10, "sl_mult": 1.20, "size_mult": 1.0, "threshold_adj": 1, "blocked": False},
     # Range / chop → bloqué (comportement v8.4)
     "RANGE":    {"tp_mult": 1.00, "sl_mult": 1.00, "size_mult": 0.0, "threshold_adj": 0, "blocked": True},
     # Squeeze (volatilité écrasée) → bloqué (comportement v8.4)

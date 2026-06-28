@@ -39,8 +39,15 @@ def test_blocked_regimes():
     assert regime_preset(40, 0.002, 0.005)["blocked"] is True   # SQUEEZE
 
 
-def test_high_vol_reduces_size():
+def test_high_vol_widens_sl_neutral_size():
+    # size_mult neutralisé (1.0) le 28/06 ; SL reste élargi en forte volatilité
     p = regime_preset(35, 0.01, 0.02, high_vol_atr=0.015)
     assert p["regime"] == "HIGH_VOL"
-    assert p["size_mult"] < 1.0
-    assert p["sl_mult"] > 1.0      # SL plus large en forte volatilité
+    assert p["size_mult"] == 1.0
+    assert p["sl_mult"] > 1.0
+
+
+def test_size_mults_neutralised():
+    # Plus aucun biais de taille sur les régimes tradés (Axe A)
+    for reg_args in [(32, 0.01, 0.005), (27, 0.01, 0.005), (35, 0.01, 0.02)]:
+        assert regime_preset(*reg_args, high_vol_atr=0.015)["size_mult"] == 1.0

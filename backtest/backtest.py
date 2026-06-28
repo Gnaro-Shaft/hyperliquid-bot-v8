@@ -275,6 +275,7 @@ class Backtester:
             "sl_price": sl_price,
             "size": size,
             "open_ts": ts,
+            "regime": sig.get("regime"),   # régime au moment de l'entrée (analyse Axe A)
             # Trailing stop
             "trail_distance": trail_distance,
             "trail_trigger":  trail_trigger,
@@ -406,6 +407,7 @@ class Backtester:
             "pnl": round(pnl, 4),
             "pnl_pct": round(pnl_pct, 3),
             "reason": reason,
+            "regime": pos.get("regime"),
             "equity_after": round(self.equity, 4),
         })
         self.position = None
