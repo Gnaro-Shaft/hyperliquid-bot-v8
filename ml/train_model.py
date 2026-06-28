@@ -44,7 +44,17 @@ from ml.predictor import FEATURE_NAMES
 
 # ─── Paramètres par défaut ───────────────────────────────────────────
 LOOKAHEAD_CANDLES  = 4      # 4 × 15m = 1h de fenêtre pour valider
-TARGET_MOVE_PCT    = 0.004  # +0.4% dans le bon sens → signal "bon"
+TARGET_MOVE_PCT    = 0.004  # défaut / fallback (+0.4% dans le bon sens → signal "bon")
+
+# Cibles par coin (Axe C, 28/06/2026) — calibrées et validées OOS sur 3 fenêtres :
+# BTC favorise un seuil bas, SOL un seuil plus haut (lookahead 4 = 1h, optimal pour
+# les deux). Gain ~+0.04-0.05 AUC out-of-sample vs le 0.4% uniforme.
+TARGET_MOVE_PCT_BY_COIN = {"BTC": 0.003, "SOL": 0.006}
+
+
+def target_for_coin(coin: str) -> float:
+    """Cible de mouvement pour le labelling, spécifique au coin (fallback défaut)."""
+    return TARGET_MOVE_PCT_BY_COIN.get(coin.upper(), TARGET_MOVE_PCT)
 MIN_SAMPLES        = 80     # Refuse d'entraîner si trop peu de données
 
 
@@ -294,8 +304,8 @@ def main():
     parser.add_argument("--days",      type=int, default=60, help="Historique en jours (défaut 60)")
     parser.add_argument("--lookahead", type=int, default=LOOKAHEAD_CANDLES,
                         help=f"Candles 15m à regarder en avant (défaut {LOOKAHEAD_CANDLES})")
-    parser.add_argument("--target",    type=float, default=TARGET_MOVE_PCT,
-                        help=f"Mouvement cible en pct (défaut {TARGET_MOVE_PCT})")
+    parser.add_argument("--target",    type=float, default=None,
+                        help="Mouvement cible en pct (défaut : par coin — BTC 0.003 / SOL 0.006)")
     parser.add_argument("--model-dir", default=None, help="Répertoire de sortie des modèles")
     args = parser.parse_args()
 
@@ -311,7 +321,8 @@ def main():
     results = []
     for coin in coins:
         try:
-            r = train(coin, args.days, args.lookahead, args.target, model_dir)
+            tgt = args.target if args.target is not None else target_for_coin(coin)
+            r = train(coin, args.days, args.lookahead, tgt, model_dir)
             if r:
                 results.append(r)
         except Exception as e:

@@ -188,7 +188,7 @@ class AutoTrainer:
         """Entraîne un challenger en staging et ne le promeut que s'il est
         meilleur que le modèle déployé et passe tous les contrôles."""
         try:
-            from ml.train_model import train as ml_train
+            from ml.train_model import train as ml_train, target_for_coin
         except ImportError as e:
             print(f"[AutoTrainer] scikit-learn absent, impossible d'entraîner: {e}")
             return
@@ -204,7 +204,7 @@ class AutoTrainer:
             coin         = coin,
             days         = TRAINING_DAYS,
             lookahead    = LOOKAHEAD_CANDLES,
-            target_pct   = TARGET_MOVE_PCT,
+            target_pct   = target_for_coin(coin),
             model_dir    = STAGING_DIR,
             holdout_days = HOLDOUT_DAYS,
         )
