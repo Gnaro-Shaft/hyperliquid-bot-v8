@@ -164,7 +164,7 @@ DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 
 # === CARRY DELTA-NEUTRE (Hyperliquid) — cf. carry/CARRY_DESIGN.md ===
 CARRY_COIN              = "HYPE"   # coin avec perp+spot liquides sur HL (l'ancre)
-CARRY_NOTIONAL_USDC     = 100      # notional cible/simulé PAR JAMBE
+CARRY_NOTIONAL_USDC     = float(os.getenv("CARRY_NOTIONAL_USDC", "100"))  # notional PAR JAMBE (env-override pour démarrer petit)
 CARRY_LEVERAGE          = 2.0      # levier du short perp (bas = sûr vs liquidation)
 CARRY_MIN_FUNDING_ANNUAL= 0.02     # sortir si le funding annualisé glissant < 2%
 CARRY_REBALANCE_DELTA_PCT = 0.05   # rebalance si |delta|/notional > 5%
