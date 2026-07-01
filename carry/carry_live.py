@@ -96,11 +96,59 @@ def open_position(p: dict):
     print(f"  ✅ position delta-neutre ouverte (perp {o1.get('id')} / spot {o2.get('id')})")
 
 
+def status():
+    """Affiche la position carry réelle (perp + spot) + funding. Lecture seule (clés requises)."""
+    if not HYPERLIQUID_API_KEY:
+        print("  ⛔ clés HL absentes → impossible de lire le compte.")
+        return
+    ex = _client()
+    bal = ex.fetch_balance()
+    hype = bal.get(CARRY_COIN, {}).get("total", 0)
+    usdc = bal.get("USDC", {}).get("free", 0)
+    perp_sz = 0.0
+    try:
+        for pos in ex.fetch_positions([PERP_SYMBOL]):
+            perp_sz = float(pos.get("contracts") or 0) * (-1 if pos.get("side") == "short" else 1)
+    except Exception as e:
+        print(f"  [warn] fetch_positions: {str(e)[:50]}")
+    f = hl_data.current_funding(CARRY_COIN)
+    print(f"\n=== STATUT CARRY LIVE [{CARRY_COIN}] ===")
+    print(f"  Spot {CARRY_COIN} détenu : {hype:.4f}  | Perp (négatif=short) : {perp_sz:.4f}")
+    print(f"  USDC libre : {usdc:.2f}  | funding annualisé : {f*24*365*100:+.1f}%")
+    print(f"  Delta approx (spot+perp) : {(hype + perp_sz):.4f} {CARRY_COIN} ({'~neutre' if abs(hype+perp_sz)<0.05 else '⚠️ déséquilibré'})")
+
+
+def close_position():
+    """Ferme les 2 jambes (rachat perp reduceOnly + vente spot). Gated par CARRY_LIVE."""
+    if not CARRY_LIVE:
+        print("  ⛔ CARRY_LIVE=false → refus. (pour fermer réellement : CARRY_LIVE=true)")
+        return
+    ex = _client()
+    # 1) racheter le short perp (reduceOnly)
+    for pos in ex.fetch_positions([PERP_SYMBOL]):
+        sz = abs(float(pos.get("contracts") or 0))
+        if sz > 0 and pos.get("side") == "short":
+            print(f"  → rachat perp {sz:.4f} (reduceOnly)…")
+            ex.create_order(PERP_SYMBOL, "market", "buy", sz, params={"reduceOnly": True})
+    # 2) vendre le spot HYPE
+    hype = ex.fetch_balance().get(CARRY_COIN, {}).get("free", 0)
+    if hype and hype > 0:
+        print(f"  → vente spot {hype:.4f}…")
+        ex.create_order(SPOT_SYMBOL, "market", "sell", hype)
+    print("  ✅ position carry fermée.")
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--plan", action="store_true", help="affiche le plan (sûr)")
-    ap.add_argument("--open", action="store_true", help="ouvre la position (nécessite CARRY_LIVE=true)")
+    ap.add_argument("--plan", action="store_true", help="affiche le plan (sûr, sans clé)")
+    ap.add_argument("--status", action="store_true", help="affiche la position réelle (lecture)")
+    ap.add_argument("--open", action="store_true", help="OUVRE (nécessite CARRY_LIVE=true)")
+    ap.add_argument("--close", action="store_true", help="FERME les 2 jambes (nécessite CARRY_LIVE=true)")
     args = ap.parse_args()
+    if args.status:
+        status(); return
+    if args.close:
+        close_position(); return
     p = build_plan()
     print_plan(p)
     if args.open:
