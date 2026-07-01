@@ -82,16 +82,18 @@ def open_position(p: dict):
     if usdc < p["capital_total"]:
         print(f"  ⛔ solde insuffisant : {usdc} < {p['capital_total']:.1f} USDC requis.")
         return
+    # HL exige un prix de référence pour les "market" (borne le slippage à 5% par défaut).
     # Jambe 1 : SHORT perp (la plus risquée — on la pose en premier)
     print(f"  → Ordre perp SHORT {p['perp_qty']:.4f}…")
-    o1 = ex.create_order(PERP_SYMBOL, "market", "sell", p["perp_qty"])
+    o1 = ex.create_order(PERP_SYMBOL, "market", "sell", p["perp_qty"], p["perp_px"])
     # Jambe 2 : BUY spot ; si échec → on déboucle le perp (pas d'expo directionnelle)
     try:
         print(f"  → Ordre spot BUY {p['spot_qty']:.4f}…")
-        o2 = ex.create_order(SPOT_SYMBOL, "market", "buy", p["spot_qty"])
+        o2 = ex.create_order(SPOT_SYMBOL, "market", "buy", p["spot_qty"], p["spot_px"])
     except Exception as e:
         print(f"  ⚠️ jambe spot échouée ({str(e)[:60]}) → UNWIND du perp pour rester neutre")
-        ex.create_order(PERP_SYMBOL, "market", "buy", p["perp_qty"])
+        ex.create_order(PERP_SYMBOL, "market", "buy", p["perp_qty"], p["perp_px"],
+                        params={"reduceOnly": True})
         return
     print(f"  ✅ position delta-neutre ouverte (perp {o1.get('id')} / spot {o2.get('id')})")
 
@@ -124,17 +126,19 @@ def close_position():
         print("  ⛔ CARRY_LIVE=false → refus. (pour fermer réellement : CARRY_LIVE=true)")
         return
     ex = _client()
+    perp_px = hl_data.perp_mid(CARRY_COIN)   # prix de référence requis par HL
+    spot_px = hl_data.spot_mid(CARRY_COIN)
     # 1) racheter le short perp (reduceOnly)
     for pos in ex.fetch_positions([PERP_SYMBOL]):
         sz = abs(float(pos.get("contracts") or 0))
         if sz > 0 and pos.get("side") == "short":
             print(f"  → rachat perp {sz:.4f} (reduceOnly)…")
-            ex.create_order(PERP_SYMBOL, "market", "buy", sz, params={"reduceOnly": True})
+            ex.create_order(PERP_SYMBOL, "market", "buy", sz, perp_px, params={"reduceOnly": True})
     # 2) vendre le spot HYPE
     hype = ex.fetch_balance().get(CARRY_COIN, {}).get("free", 0)
     if hype and hype > 0:
         print(f"  → vente spot {hype:.4f}…")
-        ex.create_order(SPOT_SYMBOL, "market", "sell", hype)
+        ex.create_order(SPOT_SYMBOL, "market", "sell", hype, spot_px)
     print("  ✅ position carry fermée.")
 
 
